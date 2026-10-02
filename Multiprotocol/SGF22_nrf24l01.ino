@@ -31,6 +31,15 @@ Multiprotocol is distributed in the hope that it will be useful,
 #define SGF22_J20_BIND_RF_CHANNEL  		28
 #define SGF22_CX10_BIND_RF_CHANNEL		48
 #define SGF22_T28_BIND_RF_CHANNEL  		28
+#define SGF22_F35_BIND_RF_CHANNEL		28
+
+// SAYZON/Park10-style F-35 reverse-engineering values.
+// Experimental: fixed-time A0 -> A1 -> flight transition.
+#define SGF22_F35_BIND_PERIOD			15910
+#define SGF22_F35_DATA_PERIOD			3970
+#define SGF22_F35_A0_COUNT				320		// ~5.09s at 15.91ms
+#define SGF22_F35_A1_COUNT				14		// ~222.7ms confirmation burst
+#define SGF22_F35_PAYLOAD_SIZE			9
 
 //packet[8]
 #define SGF22_FLAG_3D					0x00
@@ -62,6 +71,97 @@ enum {
 	SGF22_DATA3,
 	SGF22_RX,
 };
+
+enum {
+	SGF22_F35_BIND_A0,
+	SGF22_F35_BIND_A1,
+	SGF22_F35_FLIGHT,
+};
+
+static uint8_t  SGF22_F35_state;
+static uint16_t SGF22_F35_counter;
+static uint8_t  SGF22_F35_seq;
+static uint8_t  SGF22_F35_hop;
+static bool     SGF22_F35_second;
+
+static const uint8_t SGF22_F35_flight_addr[5] = { 0x55, 0x08, 0x00, 0x92, 0x14 };
+static const uint8_t SGF22_F35_hops[4] = { 0x18, 0x37, 0x27, 0x47 }; // 24,55,39,71
+
+static uint8_t __attribute__((unused)) SGF22_F35_channel(uint8_t ch)
+{
+	uint8_t value = convert_channel_8b(ch);
+	return value ? value : 0x01;
+}
+
+static void __attribute__((unused)) SGF22_F35_send_bind(uint8_t type)
+{
+	if(type == 0xA0)
+	{
+		packet[0] = 0xA0;
+		packet[1] = 0x09;
+		packet[2] = 0x0B;
+		packet[3] = 0x81;
+		packet[4] = 0x00;
+		packet[5] = 0x08;
+		packet[6] = 0x00;
+		packet[7] = 0x92;
+	}
+	else
+	{
+		packet[0] = 0xA1;
+		packet[1] = 0x00;
+		packet[2] = 0x00;
+		packet[3] = 0x00;
+		packet[4] = 0x00;
+		packet[5] = 0x08;
+		packet[6] = 0x00;
+		packet[7] = 0x92;
+	}
+	XN297_SetPower();
+	XN297_SetTxRxMode(TX_EN);
+	XN297_WriteEnhancedPayload(packet, 8, 0);
+}
+
+static void __attribute__((unused)) SGF22_F35_send_data()
+{
+	if(!SGF22_F35_second)
+	{
+		XN297_RFChannel(SGF22_F35_hops[SGF22_F35_hop]);
+		packet[0] = SGF22_F35_seq;
+	}
+	else
+		packet[0] = SGF22_F35_seq | 0x01;
+
+	packet[1] = SGF22_F35_channel(THROTTLE);
+	packet[2] = SGF22_F35_channel(RUDDER);
+	packet[3] = SGF22_F35_channel(ELEVATOR);
+	packet[4] = SGF22_F35_channel(AILERON);
+
+	// Captured 3-position mode values: 0x10 / 0x14 / 0x18.
+	if(Channel_data[CH5] > CHANNEL_MAX_COMMAND)
+		packet[5] = 0x18;
+	else if(Channel_data[CH5] > CHANNEL_MIN_COMMAND)
+		packet[5] = 0x14;
+	else
+		packet[5] = 0x10;
+
+	packet[6] = 0x00;
+	packet[7] = 0x10;
+	packet[8] = 0x42;
+
+	XN297_SetPower();
+	XN297_SetTxRxMode(TX_EN);
+	XN297_WriteEnhancedPayload(packet, SGF22_F35_PAYLOAD_SIZE, 0);
+
+	if(SGF22_F35_second)
+	{
+		SGF22_F35_seq += 4;
+		if(SGF22_F35_seq > 0xB8)
+			SGF22_F35_seq = 0x80;
+		SGF22_F35_hop = (SGF22_F35_hop + 1) & 0x03;
+	}
+	SGF22_F35_second = !SGF22_F35_second;
+}
 
 static void __attribute__((unused)) SGF22_send_packet()
 {
@@ -205,12 +305,45 @@ static void __attribute__((unused)) SGF22_RF_init()
 		XN297_SetRXAddr((uint8_t*)"\xC7\x95\x3C\xBB\xA5", SGF22_PAYLOAD_SIZE);
 	#endif
 
-	const uint8_t bind_chan[] = {SGF22_BIND_RF_CHANNEL, SGF22_F22S_BIND_RF_CHANNEL, SGF22_J20_BIND_RF_CHANNEL, SGF22_CX10_BIND_RF_CHANNEL, SGF22_T28_BIND_RF_CHANNEL};
+	const uint8_t bind_chan[] = {SGF22_BIND_RF_CHANNEL, SGF22_F22S_BIND_RF_CHANNEL, SGF22_J20_BIND_RF_CHANNEL, SGF22_CX10_BIND_RF_CHANNEL, SGF22_T28_BIND_RF_CHANNEL, SGF22_F35_BIND_RF_CHANNEL};
 	XN297_RFChannel(bind_chan[sub_protocol]);	// Set bind channel
 }
 
 uint16_t SGF22_callback()
 {
+	if(sub_protocol == SGF22_F35)
+	{
+		switch(SGF22_F35_state)
+		{
+			case SGF22_F35_BIND_A0:
+				SGF22_F35_send_bind(0xA0);
+				if(--SGF22_F35_counter == 0)
+				{
+					SGF22_F35_state = SGF22_F35_BIND_A1;
+					SGF22_F35_counter = SGF22_F35_A1_COUNT;
+				}
+				return SGF22_F35_BIND_PERIOD;
+
+			case SGF22_F35_BIND_A1:
+				SGF22_F35_send_bind(0xA1);
+				if(--SGF22_F35_counter == 0)
+				{
+					BIND_DONE;
+					XN297_SetTXAddr((uint8_t*)SGF22_F35_flight_addr, 5);
+					SGF22_F35_state = SGF22_F35_FLIGHT;
+					SGF22_F35_seq = 0x80;
+					SGF22_F35_hop = 0;
+					SGF22_F35_second = false;
+				}
+				return SGF22_F35_BIND_PERIOD;
+
+			default:
+				SGF22_F35_send_data();
+				return SGF22_F35_DATA_PERIOD;
+		}
+	}
+
+
 	#ifdef SGF22_HUB_TELEMETRY
 		bool rx = false;
 		static uint8_t telem_count = 0;
@@ -298,6 +431,19 @@ uint16_t SGF22_callback()
 
 void SGF22_init()
 {
+	if(sub_protocol == SGF22_F35)
+	{
+		BIND_IN_PROGRESS;
+		SGF22_RF_init();
+		SGF22_F35_state = SGF22_F35_BIND_A0;
+		SGF22_F35_counter = SGF22_F35_A0_COUNT;
+		SGF22_F35_seq = 0x80;
+		SGF22_F35_hop = 0;
+		SGF22_F35_second = false;
+		return;
+	}
+
+
 	BIND_IN_PROGRESS;	// autobind protocol
 	SGF22_initialize_txid();
 	SGF22_RF_init();
