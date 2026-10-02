@@ -362,7 +362,8 @@ uint16_t SGF22_callback()
 							return SGF22_F35_BIND_PERIOD - SGF22_F35_bind_elapsed;
 						}
 
-						XN297_SetTxRxMode(TXRX_OFF);
+						// Switch directly from powered TX to RX; do not power the NRF
+						// down first or we would throw away the tight ACK turnaround.
 						XN297_SetTxRxMode(RX_EN);
 						SGF22_F35_bind_elapsed += SGF22_F35_ACK_WINDOW_US;
 						SGF22_F35_bind_ack_state = SGF22_F35_ACK_LISTEN;
@@ -381,6 +382,8 @@ uint16_t SGF22_callback()
 							ack = (len == 0);
 						}
 
+						// Leave RX cleanly; the next A0/A1 send switches straight
+						// back to TX without changing the captured bind cadence.
 						XN297_SetTxRxMode(TXRX_OFF);
 						SGF22_F35_bind_ack_state = SGF22_F35_ACK_SEND;
 
