@@ -1,10 +1,10 @@
 # SAYZON 40 mm F-35 / ParkTen-style 2.4 GHz protocol reverse engineering
 
-Status: **beta candidate / bench tested on one aircraft-transmitter pair**
+Status: **single-pair engineering beta; not yet a general F-35 release**
 
-This document records the reverse engineering and current experimental implementation of the 2.4 GHz protocol used by the SAYZON 40 mm F-35 EDF aircraft in `pascallanger/DIY-Multiprotocol-TX-Module`.
+This document records the reverse engineering and current experimental MultiModule implementation for a SAYZON 40 mm F-35 EDF aircraft.
 
-> Safety: all bind, ownership, recovery and arming tests should be performed with the EDF/motor electrically disconnected until the behavior is fully characterized.
+> Safety: perform bind, ownership, recovery, auxiliary-function and arming tests with the EDF/motor electrically disconnected until the behavior is fully characterized.
 
 ## Hardware used
 
@@ -14,205 +14,216 @@ This document records the reverse engineering and current experimental implement
 - iRangeX IRX4 Plus 4-in-1 MultiModule
 - MultiModule XN297 dump/debug firmware
 
-The stock transmitter RF path appears to be:
+Observed stock-TX RF path:
 
 ```text
-MCU -> 3-wire SPI -> XN297-family radio -> RFX2401C PA/LNA -> antenna
+MCU -> 3-wire SPI -> XN297-family radio -> RFX2401C-class PA/LNA -> antenna
 ```
 
-The packet radio is believed to be an XN297-family device, likely XN297LBW. The RFX2401C is the PA/LNA front end.
+The exact radio/front-end markings should still be recorded from the PCB. This matters because the bind ACK turnaround depends on both the packet radio and the PA/LNA TXEN/RXEN timing.
 
-## Confirmed RF format
+## Family identification: this is an SGF22-family variant
+
+Several items that initially looked F-35-specific are already present in upstream SGF22.
+
+### Shared bind PHY/address
+
+Confirmed F-35 bind PHY:
 
 ```text
-radio family:       XN297
-bitrate:            1 Mbps
-scrambling:         enabled
-payload format:     enhanced
-address length:     5 bytes
-bind RF channel:    28
-bind address:       C7 95 3C BB A5
+XN297
+1 Mbps
+scrambled enhanced payload
+5-byte address
+bind address C7 95 3C BB A5
 ```
 
-This places the F-35 very close to the existing MultiModule SGF22 family, but its bind frames, flight payload length and packet scheduling are different enough to keep it as its own SGF22 subtype.
+Upstream SGF22 uses the same bind address:
 
-## Stock bind/acquisition sequence
-
-### A0 search
-
-The stock transmitter begins with:
-
-```text
-A0 09 0B 81 00 08 00 92
+```c
+XN297_SetTXAddr((uint8_t*)"\xC7\x95\x3C\xBB\xA5", 5);
 ```
 
-on:
+The F-35 binds on RF channel 28. Upstream J20 and T28 also use channel 28.
 
-```text
-channel 28
-address C7 95 3C BB A5
-period ~15.91 ms
-```
+### Hop set is an existing SGF22 row
 
-With the aircraft powered off, the stock transmitter can remain in A0 indefinitely. Therefore A0 -> A1 is not a simple transmitter timer.
-
-### Receiver participation / ACK-like event
-
-The current MultiModule experiment sends the same A0 frame and, immediately after TX completion, turns the NRF around to RX for a short window.
-
-A valid zero-length enhanced receive event in that window causes the implementation to advance immediately to A1.
-
-Bench result:
-
-- the aircraft binds substantially faster than the old fixed ~5.1 s approximation;
-- on a fresh model setup, the control surfaces performed the bind/init movement once rather than the earlier two-stage-feeling behavior;
-- behavior is consistent with the receiver acknowledging A0 and the transmitter using that event to leave search.
-
-This is strong evidence for an ACK-like receiver-participation event, but it has only been tested on one aircraft/transmitter pair. The exact native XN297 ACK semantics have not been independently captured on the stock transmitter SPI bus.
-
-### A1 confirmation
-
-After receiver participation, the transmitter sends:
-
-```text
-A1 00 00 00 00 08 00 92
-```
-
-on the same bind channel/address for approximately 200-225 ms.
-
-Enhanced-payload PID continuity across A0 -> A1 indicates that A1 is transmitter-originated.
-
-### Current acquisition state machine
-
-The beta-candidate implementation now behaves as:
-
-```text
-startup / Bind
-    |
-    v
-A0 SEARCH
-ch 28 / C7 95 3C BB A5
-A0 09 0B 81 00 08 00 92
-    |
-    | receiver participation detected
-    v
-A1 CONFIRM
-A1 00 00 00 00 08 00 92
-~14 packets / ~223 ms
-    |
-    v
-FLIGHT
-```
-
-A0 is no longer aged out by an arbitrary five-second timer. The transmitter remains in search until the receiver participates.
-
-## Why startup must acquire instead of immediately transmitting flight packets
-
-Two-transmitter testing exposed a receiver ownership/reacquisition state.
-
-Observed behavior:
-
-1. **Q X7 controls aircraft; stock TX is powered on**
-   - stock TX remains blinking/searching;
-   - it does not immediately take control;
-   - when the Q X7 is switched off, the stock transmitter can acquire control very quickly.
-
-2. **Stock TX controls aircraft; Q X7 blindly starts captured flight traffic**
-   - control surfaces jitter/jump;
-   - stock transmitter reacts/beeps;
-   - interference stops when the Q X7 is removed.
-
-The earlier direct-to-flight startup therefore differed from the stock state machine and could interfere with an already-owned receiver.
-
-The current `sayzon-f35-stock-acquire` branch performs A0 acquisition on startup and only enters flight after receiver participation. Bench testing indicates this is the correct direction.
-
-## Flight link
-
-### Flight address
-
-```text
-55 08 00 92 14
-```
-
-The fragment `08 00 92` also appears in A0 and A1. It is not yet known whether this value is globally fixed, model-specific or pair-specific.
-
-### RF hop set
-
-Confirmed flight channels:
-
-```text
-24, 39, 55, 71
-```
-
-Current implementation order:
+The captured F-35 hop order is:
 
 ```text
 24 -> 55 -> 39 -> 71
 ```
 
-This is the same four-channel set already present in the SGF22 hopping table.
-
-### Packet sequence
-
-Flight packets occur as same-channel pairs separated by approximately 3.96-3.98 ms.
-
-Byte 0 follows:
-
-```text
-80 81
-84 85
-88 89
-8C 8D
-...
-B8 B9
-wrap -> 80 81
-```
-
-Implementation:
+which is exactly SGF22 hop-table row 4:
 
 ```c
-first_copy = base;
-second_copy = base | 0x01;
-
-base += 0x04;
-if (base > 0xB8)
-    base = 0x80;
+{ 0x18, 0x37, 0x27, 0x47 }  // 24, 55, 39, 71
 ```
+
+Upstream SGF22 does **not** hard-code that row globally. It derives a row from its two-byte pair ID:
+
+```c
+uint16_t val = (rx_tx_addr[2] << 8) | rx_tx_addr[3];
+if (rx_tx_addr[2] > (0xFF - rx_tx_addr[3]))
+    val--;
+val %= 5;
+```
+
+For the captured F-35, the two meaningful ID-looking bytes are `08` and `92`, separated by `00` in the bind/flight structures. Interpreting `08/92` as the SGF22-style ID selects row 4.
+
+That interpretation is highly plausible but has only one pair behind it. The current F-35 code still freezes row 4 and therefore is **pair-specific until a second stock pair proves how the ID is encoded and how the flight address is derived**.
+
+## Stock acquisition state machine
+
+The state machine itself is now clear:
+
+```text
+A0 search until receiver participation
+        ->
+A1 confirmation
+        ->
+flight
+```
+
+### A0
+
+```text
+channel: 28
+address: C7 95 3C BB A5
+period:  ~15.91 ms
+
+A0 09 0B 81 00 08 00 92
+```
+
+With the aircraft powered off, the stock transmitter remains in A0 indefinitely. Therefore the transition is receiver-driven, not a bind timer.
+
+The `09 0B 81 00` portion is still unread. It has been stable in the captures so far, but should be checked across repeated cold power cycles and another transmitter before being treated as a protocol constant. It is not the four-channel hop list.
+
+### Empty enhanced ACK
+
+The zero-length enhanced receive event is best understood as the XN297 enhanced-mode ACK, not an application-level aircraft message.
+
+A native XN297 can perform the TX -> RX ACK turnaround in hardware. An empty ACK has zero application payload, so there is no ordinary receiver payload for the stock MCU to parse.
+
+The MultiModule NRF24L01 path is emulating XN297 framing. The current F-35 implementation therefore reproduces the event by:
+
+```text
+send emulated XN297 A0
+wait for TX completion
+switch NRF/PA-LNA path to RX immediately
+listen for a valid zero-length enhanced frame
+advance to A1 on success
+```
+
+This worked on the iRangeX IRX4 Plus, but it is hardware-sensitive. The fragile part is the NRF plus external PA/LNA turnaround inside the ACK window. Success on one IRX4 Plus does not prove identical behavior on every NRF24L01 clone or on other RF backends.
+
+Relevant native-radio concepts are auto-ack/retry configuration such as `EN_AA`, `SETUP_RETR`, `DYNPD/FEATURE`, and the TX result state (`TX_DS` versus retry failure). The current NRF emulation is not the same as simply enabling native NRF auto-ack because it is carrying an emulated XN297 on-air frame.
+
+### A1
+
+After participation:
+
+```text
+A1 00 00 00 00 08 00 92
+```
+
+is sent on the same bind channel/address for roughly 200-225 ms.
+
+PID continuity across A0 -> A1 supports A1 being transmitter-originated.
+
+## Pair ID and flight address
+
+Captured flight address:
+
+```text
+55 08 00 92 14
+```
+
+A0/A1 contain:
+
+```text
+08 00 92
+```
+
+while `55` and `14` do not appear in either bind frame.
+
+The most useful current interpretation is:
+
+```text
+08 ... 92  = pair identity carried during acquisition
+55 / 14    = flight-address wrapper bytes, fixed or derived unknown
+```
+
+That makes this look like factory pairing rather than a bind exchange that teaches a new flight address. The aircraft appears to recognize its existing identity while listening to A0.
+
+With only one stock pair, we cannot yet determine whether:
+
+- `08/92` changes per pair;
+- the inserted `00` is part of the ID or a fixed field;
+- `55` and `14` are fixed wrappers;
+- `55` and/or `14` are derived from the pair ID.
+
+This is the main blocker to a general release.
 
 ## Flight payload
 
-Normal flight packets are 9 bytes:
+Captured F-35 flight packets are 9 bytes:
 
 ```text
 [0] [1] [2] [3] [4] [5]  [6] [7] [8]
-SEQ THR RUD ELE AIL MODE  ??  ??  ??
+SEQ THR RUD ELE AIL MODE  AUX FT? FT?
 ```
 
-Current mapping:
+Current observations:
 
 ```text
-byte 0  sequence
-byte 1  throttle    01..FF
-byte 2  rudder      01..7F..FF
-byte 3  elevator    01..80..FF
-byte 4  aileron     01..7F..FF
-byte 5  mode        10 / 14 / 18
-byte 6  normally 00
+byte 0  sequence / sequence flags
+byte 1  throttle       floor 01
+byte 2  rudder         center 7F
+byte 3  elevator       center 80
+byte 4  aileron        center 7F
+byte 5  mode           10 / 14 / 18
+byte 6  auxiliary flags; normally 00
 byte 7  normally 10
 byte 8  normally 42
 ```
 
-Q X7 mapping:
+### Fine-tune sentinel bytes
 
-```text
-CH1 Aileron
-CH2 Elevator
-CH3 Throttle
-CH4 Rudder
-CH5 3-position flight mode
+Upstream SGF22 sends:
+
+```c
+packet[10] = 0x42; // no fine tune
+packet[11] = 0x10; // no fine tune
 ```
 
-CH5 mode values:
+The F-35 has the same two sentinel values in the opposite order at the end of its shorter packet:
+
+```text
+byte 7 = 10
+byte 8 = 42
+```
+
+They should be treated as inherited no-fine-tune sentinels unless a stock-transmitter trim sweep shows them changing.
+
+### Auxiliary byte
+
+F-35 byte 6 is the likely SGF22-family auxiliary flag byte.
+
+Two observed values already overlap named upstream SGF22 bits:
+
+```text
+0x02  SGF22_FX922_FLAG_BALANCE
+0x20  SGF22_T28_RTH_SET
+```
+
+That does **not** prove those two functions have the same user-facing meaning on the F-35; it does show that treating the bits as random unknown data is no longer useful.
+
+The next test is a systematic stock-button sweep while watching byte 6. Candidate family bits to watch include the usual SGF22 toy-function masks such as `0x04`, `0x08`, `0x10`, `0x20`, `0x40`, and `0x80`.
+
+### Mode byte is a real F-35 divergence
+
+Captured three-position values:
 
 ```text
 -100% -> 0x10
@@ -220,115 +231,162 @@ CH5 mode values:
 +100% -> 0x18
 ```
 
-No application-level checksum has been identified; XN297 enhanced-payload CRC provides link-layer integrity.
+Unlike upstream SGF22, which folds flight mode into flag bits, the F-35 has a dedicated mode byte.
 
-Special byte-6 values such as `0x02` and `0x20`, and occasional unusual byte-0 values, remain unresolved.
+The values advance in steps of four, so when auxiliary buttons are swept, byte 5 should also be checked for additional low/high bits rather than assuming every feature lives only in byte 6.
 
-## Motor arming is separate from RF acquisition
+## Stick encoding needs exact endpoint/center work
 
-The stock transmitter performs a throttle-up / throttle-down gesture after the RF link is established.
-
-Current testing indicates this is **not another bind stage** and probably is not a separate ARM channel.
-
-Evidence:
-
-- SGF22-family implementations expose many auxiliary flags, but no dedicated ARM channel for F22/F22S/J20/T28.
-- The F-35 has full surface control after RF acquisition while the motor can still be in its safe/disarmed state.
-- With the Q X7, only a small throttle excursion followed by returning to low appeared sufficient to arm the aircraft.
-
-Current working hypothesis:
+Captured neutral/floor values are asymmetric:
 
 ```text
-RF acquisition:
-A0 -> receiver participation -> A1 -> flight packets
-
-motor safety:
-throttle low -> throttle rises above an unknown threshold -> throttle low
--> motor armed
+throttle floor  0x01
+rudder center   0x7F
+elevator center 0x80
+aileron center  0x7F
 ```
 
-The exact throttle threshold and required timing are not yet characterized. The protocol firmware should **not automatically command an arming throttle excursion** until this is understood, because doing so could unexpectedly start the EDF.
+The current implementation already avoids transmitting throttle/axis `0x00` by replacing zero with `0x01`, but upstream `convert_channel_8b()` naturally centers at `0x80`.
 
-## Comparison with existing SGF22/F22 implementation
+A proper stock stick sweep should establish:
 
-Current upstream SGF22/F22 does not gate bind completion on an ACK or a specific aircraft message.
+- exact minimum/maximum for each axis;
+- exact neutral byte at physical center;
+- whether `0x00` is reserved/failsafe-like;
+- whether rudder/aileron intentionally center at `0x7F` rather than being capture noise or trim.
 
-It uses:
+## Sequence and pair scheduler remain open
+
+Captured first-byte pairs:
 
 ```text
-SGF22_BIND_COUNT = 50
+80 81
+84 85
+88 89
+...
+B8 B9
 ```
 
-and exits bind when that counter reaches zero.
+The +4 progression is family-like. Upstream SGF22 contains a long-standing note that its sequence can appear as `0x02..0x7A` and sometimes with `0x80` ORed in.
 
-If SGF22 telemetry is enabled, the implementation can receive a 3-byte aircraft packet containing transmitter-ID bytes and battery state, but that message is used for telemetry and does not cause `BIND_DONE`.
+Therefore the F-35's `0x80` should not yet be treated as a unique protocol flag. The occasional unusual/unflagged byte-0 values may be ordinary family sequence behavior or resynchronization.
 
-Therefore the existing F22 code is effectively a fixed-time working approximation. The F-35 implementation now models the experimentally observed receiver-driven A0 -> A1 transition instead.
+What still needs a clean timing capture:
 
-## Development history
+- gap between the two packets in a same-channel pair;
+- gap between adjacent pairs;
+- exact hop transition relative to the pair;
+- whether the second member is an application-level second packet or a hardware retry;
+- whether enhanced PID is reused or incremented;
+- sequence-to-hop phase relationship.
 
-Important branches:
+This is more important than further decoding of already-recognized family constants.
+
+## Motor arming remains unproven
+
+The aircraft has surface control after RF acquisition while the motor can remain in its safe/disarmed state.
+
+On the Q X7, a small throttle excursion followed by returning to low appeared to arm the aircraft. That suggests receiver-side throttle-state arming, but it is not yet proven.
+
+The decisive stock capture is:
 
 ```text
-sayzon-f35-experiment
-    first working proof; forced timed A0/A1 on every init
-
-sayzon-f35-normal-bind
-    normal MultiModule Bind command; fixed timer
-
-sayzon-f35-qx7-air
-    normal-bind code plus AIR/serial profile for 128 KB STM32F103CB
-
-sayzon-f35-bind-probe
-    first generic RX probe; disrupted binding; superseded
-
-sayzon-f35-ack-handshake
-    immediate post-A0 zero-length enhanced receive probe;
-    substantially faster successful bind
-
-sayzon-f35-stock-acquire
-    current beta candidate;
-    performs receiver-driven acquisition on every startup so it does not
-    blindly inject flight packets into an already-owned receiver
+after A1 / flight:
+hold low
+perform stock throttle-up -> throttle-down gesture
+log byte 1 and byte 6 continuously
 ```
 
-## What is considered proven on the current test pair
+Interpretation:
 
-- XN297, 1 Mbps, scrambled enhanced framing
-- bind address `C7 95 3C BB A5`
-- bind channel 28
-- A0 frame and ~15.91 ms cadence
-- aircraft participation is required for the stock transmitter to leave A0
-- A1 frame and ~200-225 ms confirmation phase
-- immediate post-A0 receive detection makes the MultiModule bind much faster
-- flight address `55 08 00 92 14`
-- hop set `24,55,39,71`
-- 9-byte flight payload and primary control mapping
-- CH5 mode values `10/14/18`
-- startup acquisition is preferable to blind direct-to-flight traffic
-- motor arming appears to be a post-link throttle-state operation
+- if only byte 1 follows the stick, arming is receiver-side throttle-state logic;
+- if byte 6 pulses or another field changes independently of the stick, there is a protocol arm command.
 
-## What is not proven yet
+No automatic throttle excursion should be added to firmware until this is settled.
 
-- whether the zero-length receive event is exactly the stock XN297 hardware ACK mechanism or an equivalent zero-payload enhanced response
-- whether `08 00 92` and the flight address are globally fixed or pair-specific
-- whether all SAYZON/ParkTen F-35 units use the same hop/address values
-- exact arming throttle threshold and timing
-- meaning of byte-6 special values
-- exact stock hop/pair scheduler details
-- behavior on other MultiModule hardware / NRF clones
-- long-range and in-flight recovery behavior
+## Receiver ownership / failsafe window
 
-## Beta-test priorities
+Two-transmitter testing showed that the receiver maintains an active-link ownership state.
 
-Additional owners are most useful if they can report:
+Observed qualitatively:
 
-1. whether `sayzon-f35-stock-acquire` binds their aircraft;
-2. whether bind advances quickly after the aircraft is powered;
-3. whether the model remains in A0/search when no compatible aircraft is available;
-4. whether powering a second transmitter causes jitter or takeover;
-5. whether a small low -> raised -> low throttle movement arms the motor;
-6. whether their captured bind/flight address contains the same `08 00 92` identifier;
-7. module type, radio type and exact aircraft branding/revision.
+- when Q X7 owns the aircraft, stock TX remains searching;
+- when Q X7 disappears, stock TX acquires quickly;
+- blindly injecting the captured flight stream while stock TX owns the receiver causes jitter/interference.
 
-Please test with the EDF disconnected first.
+The **ownership hold time has not been measured**. That time is effectively part of the receiver's link-loss/failsafe behavior.
+
+Needed measurement:
+
+```text
+establish owner
+remove owner at a known timestamp
+measure time until waiting transmitter receives participation / gains control
+```
+
+This will show whether recovery requires a fresh A0 acquisition after link loss and how long the receiver protects its current owner.
+
+## RX/telemetry path after A1
+
+Current F-35 code has no normal receive/telemetry phase after A1.
+
+Upstream SGF22 can receive a 3-byte enhanced packet on the bind address:
+
+```text
+[id0, id1, battery-state]
+```
+
+The F-35 stock transmitter should be checked for low-battery indication/beeps. If it has them, a family-style telemetry response is a strong candidate and should be sniffed after A1.
+
+## Current code limitation
+
+The present beta branch still contains:
+
+```c
+static const uint8_t SGF22_F35_flight_addr[5] =
+    { 0x55, 0x08, 0x00, 0x92, 0x14 };
+
+static const uint8_t SGF22_F35_hops[4] =
+    { 0x18, 0x37, 0x27, 0x47 };
+```
+
+That is intentionally left as the known-working single-pair implementation.
+
+It should **not** be generalized by guessing an ID/address derivation from one sample. A second stock transmitter/aircraft capture is required first.
+
+## Highest-value next capture
+
+The highest-value external beta result is a second stock pair.
+
+For another F-35, capture:
+
+1. A0 and A1;
+2. the flight address;
+3. all four flight RF channels;
+4. a few normal flight packets.
+
+The key comparison is the identity:
+
+```text
+first pair: 08 00 92
+second pair: ?
+```
+
+If the second pair changes identity and lands on a different SGF22 hop-table row, the implementation should be converted from frozen constants to an SGF22-style model/pair ID immediately.
+
+If the identity remains the same across multiple independently purchased aircraft, then factory-global addressing becomes more plausible.
+
+## Current conclusion
+
+The handshake is no longer the principal mystery. The important result is:
+
+```text
+A0 until receiver participation
+-> empty enhanced ACK
+-> A1
+-> flight
+```
+
+The remaining work is mainly to map this F-35 packet layout onto already-known SGF22 family concepts and to determine which fields are pair-specific.
+
+A formal beta release should wait for at least one additional stock pair because the current code bakes one captured identity, one flight address and the corresponding SGF22 row-4 hop set into firmware.
