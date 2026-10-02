@@ -37,7 +37,7 @@ Multiprotocol is distributed in the hope that it will be useful,
 // Experimental: fixed-time A0 -> A1 -> flight transition.
 #define SGF22_F35_BIND_PERIOD			15910
 #define SGF22_F35_DATA_PERIOD			3970
-#define SGF22_F35_A0_COUNT				320		// ~5.09s at 15.91ms
+#define SGF22_F35_A0_COUNT				32		// test: ~0.51s at 15.91ms
 #define SGF22_F35_A1_COUNT				14		// ~222.7ms confirmation burst
 #define SGF22_F35_BIND_COUNT			(SGF22_F35_A0_COUNT + SGF22_F35_A1_COUNT)
 #define SGF22_F35_PAYLOAD_SIZE			9
