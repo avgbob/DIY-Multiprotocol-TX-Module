@@ -41,6 +41,8 @@ Multiprotocol is distributed in the hope that it will be useful,
 #define SGF22_F35_A1_COUNT				14		// ~222.7ms confirmation burst
 #define SGF22_F35_BIND_COUNT			(SGF22_F35_A0_COUNT + SGF22_F35_A1_COUNT)
 #define SGF22_F35_PAYLOAD_SIZE			9
+#define SGF22_F35_RX_TURNAROUND			750
+#define SGF22_F35_BIND_REPLY_MAX		28
 
 //packet[8]
 #define SGF22_FLAG_3D					0x00
@@ -76,6 +78,9 @@ enum {
 static uint8_t  SGF22_F35_seq;
 static uint8_t  SGF22_F35_hop;
 static bool     SGF22_F35_second;
+static bool     SGF22_F35_probe_rx_setup;
+static bool     SGF22_F35_probe_check;
+static uint8_t  SGF22_F35_probe_packet[SGF22_F35_BIND_REPLY_MAX];
 
 static const uint8_t SGF22_F35_flight_addr[5] = { 0x55, 0x08, 0x00, 0x92, 0x14 };
 static const uint8_t SGF22_F35_hops[4] = { 0x18, 0x37, 0x27, 0x47 }; // 24,55,39,71
@@ -317,14 +322,44 @@ uint16_t SGF22_callback()
 	{
 		if(IS_BIND_IN_PROGRESS)
 		{
-			// Use the MultiModule framework bind flag and bind_counter.
-			// This makes the radio's Bind command restart the protocol in bind
-			// mode, while normal startup goes directly to the flight link.
-			if(bind_counter > SGF22_F35_A1_COUNT)
-				SGF22_F35_send_bind(0xA0);
-			else
-				SGF22_F35_send_bind(0xA1);
+			// Probe for the receiver-side event which makes the stock TX leave A0.
+			// A0 is transmitted first, then the NRF is turned around into RX for
+			// the remainder of the 15.91ms bind period.  If we receive any valid
+			// enhanced XN297 frame on the bind address, advance immediately to A1.
+			// If nothing is received, retain the proven timed A0 fallback.
+			if(SGF22_F35_probe_rx_setup)
+			{
+				XN297_SetTxRxMode(TXRX_OFF);
+				XN297_SetTxRxMode(RX_EN);
+				SGF22_F35_probe_rx_setup = false;
+				SGF22_F35_probe_check = true;
+				return SGF22_F35_BIND_PERIOD - SGF22_F35_RX_TURNAROUND;
+			}
 
+			if(SGF22_F35_probe_check)
+			{
+				if(XN297_IsRX())
+				{
+					uint8_t len = XN297_ReadEnhancedPayload(SGF22_F35_probe_packet, SGF22_F35_BIND_REPLY_MAX);
+					if(len != 255)
+					{
+						// Receiver participation detected: start the captured A1 phase now.
+						bind_counter = SGF22_F35_A1_COUNT;
+					}
+				}
+				SGF22_F35_probe_check = false;
+			}
+
+			if(bind_counter > SGF22_F35_A1_COUNT)
+			{
+				SGF22_F35_send_bind(0xA0);
+				if(bind_counter)
+					bind_counter--;
+				SGF22_F35_probe_rx_setup = true;
+				return SGF22_F35_RX_TURNAROUND;
+			}
+
+			SGF22_F35_send_bind(0xA1);
 			if(bind_counter && --bind_counter == 0)
 				SGF22_F35_start_flight();
 
@@ -430,10 +465,16 @@ void SGF22_init()
 		SGF22_F35_hop = 0;
 		SGF22_F35_second = false;
 
+		SGF22_F35_probe_rx_setup = false;
+		SGF22_F35_probe_check = false;
+
 		if(IS_BIND_IN_PROGRESS)
 		{
 			// Explicit bind requested by the radio.
 			bind_counter = SGF22_F35_BIND_COUNT;
+			// Listen for a possible receiver reply on the same address used by A0.
+			// 28 bytes gives the enhanced decoder enough room for any short reply.
+			XN297_SetRXAddr((uint8_t*)"\xC7\x95\x3C\xBB\xA5", SGF22_F35_BIND_REPLY_MAX);
 		}
 		else
 		{
