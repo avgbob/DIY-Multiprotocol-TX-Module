@@ -39,6 +39,7 @@ Multiprotocol is distributed in the hope that it will be useful,
 #define SGF22_F35_DATA_PERIOD			3970
 #define SGF22_F35_A0_COUNT				320		// ~5.09s at 15.91ms
 #define SGF22_F35_A1_COUNT				14		// ~222.7ms confirmation burst
+#define SGF22_F35_BIND_COUNT			(SGF22_F35_A0_COUNT + SGF22_F35_A1_COUNT)
 #define SGF22_F35_PAYLOAD_SIZE			9
 
 //packet[8]
@@ -72,14 +73,6 @@ enum {
 	SGF22_RX,
 };
 
-enum {
-	SGF22_F35_BIND_A0,
-	SGF22_F35_BIND_A1,
-	SGF22_F35_FLIGHT,
-};
-
-static uint8_t  SGF22_F35_state;
-static uint16_t SGF22_F35_counter;
 static uint8_t  SGF22_F35_seq;
 static uint8_t  SGF22_F35_hop;
 static bool     SGF22_F35_second;
@@ -120,6 +113,15 @@ static void __attribute__((unused)) SGF22_F35_send_bind(uint8_t type)
 	XN297_SetPower();
 	XN297_SetTxRxMode(TX_EN);
 	XN297_WriteEnhancedPayload(packet, 8, 0);
+}
+
+static void __attribute__((unused)) SGF22_F35_start_flight()
+{
+	BIND_DONE;
+	XN297_SetTXAddr((uint8_t*)SGF22_F35_flight_addr, 5);
+	SGF22_F35_seq = 0x80;
+	SGF22_F35_hop = 0;
+	SGF22_F35_second = false;
 }
 
 static void __attribute__((unused)) SGF22_F35_send_data()
@@ -313,34 +315,24 @@ uint16_t SGF22_callback()
 {
 	if(sub_protocol == SGF22_F35)
 	{
-		switch(SGF22_F35_state)
+		if(IS_BIND_IN_PROGRESS)
 		{
-			case SGF22_F35_BIND_A0:
+			// Use the MultiModule framework bind flag and bind_counter.
+			// This makes the radio's Bind command restart the protocol in bind
+			// mode, while normal startup goes directly to the flight link.
+			if(bind_counter > SGF22_F35_A1_COUNT)
 				SGF22_F35_send_bind(0xA0);
-				if(--SGF22_F35_counter == 0)
-				{
-					SGF22_F35_state = SGF22_F35_BIND_A1;
-					SGF22_F35_counter = SGF22_F35_A1_COUNT;
-				}
-				return SGF22_F35_BIND_PERIOD;
-
-			case SGF22_F35_BIND_A1:
+			else
 				SGF22_F35_send_bind(0xA1);
-				if(--SGF22_F35_counter == 0)
-				{
-					BIND_DONE;
-					XN297_SetTXAddr((uint8_t*)SGF22_F35_flight_addr, 5);
-					SGF22_F35_state = SGF22_F35_FLIGHT;
-					SGF22_F35_seq = 0x80;
-					SGF22_F35_hop = 0;
-					SGF22_F35_second = false;
-				}
-				return SGF22_F35_BIND_PERIOD;
 
-			default:
-				SGF22_F35_send_data();
-				return SGF22_F35_DATA_PERIOD;
+			if(bind_counter && --bind_counter == 0)
+				SGF22_F35_start_flight();
+
+			return SGF22_F35_BIND_PERIOD;
 		}
+
+		SGF22_F35_send_data();
+		return SGF22_F35_DATA_PERIOD;
 	}
 
 	#ifdef SGF22_HUB_TELEMETRY
@@ -432,13 +424,23 @@ void SGF22_init()
 {
 	if(sub_protocol == SGF22_F35)
 	{
-		BIND_IN_PROGRESS;
 		SGF22_RF_init();
-		SGF22_F35_state = SGF22_F35_BIND_A0;
-		SGF22_F35_counter = SGF22_F35_A0_COUNT;
+
 		SGF22_F35_seq = 0x80;
 		SGF22_F35_hop = 0;
 		SGF22_F35_second = false;
+
+		if(IS_BIND_IN_PROGRESS)
+		{
+			// Explicit bind requested by the radio.
+			bind_counter = SGF22_F35_BIND_COUNT;
+		}
+		else
+		{
+			// Normal startup: immediately use the already-paired flight link.
+			bind_counter = 0;
+			XN297_SetTXAddr((uint8_t*)SGF22_F35_flight_addr, 5);
+		}
 		return;
 	}
 
