@@ -354,6 +354,44 @@ If the two tests above succeed, change the implementation so F35 does not force 
 
 Normal protocol initialization should enter FLIGHT immediately, while the radio's explicit Bind request should start A0/A1.
 
+## Normal MultiModule bind workflow experiment
+
+MultiModule's serial core already provides the behavior we want:
+
+- selecting a model/protocol normally initializes it with bind **not** in progress
+- pressing the radio's **Bind** control sets the serial bind flag
+- the core restarts the protocol with `BIND_IN_PROGRESS`
+- protocols may use the global `bind_counter`
+- clearing/canceling Bind causes the core `End_Bind()` path to shorten that counter so the protocol exits bind promptly
+
+Several existing protocols follow this pattern rather than unconditionally forcing autobind. HiSky is a particularly clear example: its init routine sets its bind counter only when `IS_BIND_IN_PROGRESS`; otherwise it starts normal data mode. Q90C and Potensic similarly choose the bind RF address only when the framework says binding is active and then switch to the normal address when binding completes.
+
+The F35 experimental implementation was therefore changed on branch `sayzon-f35-normal-bind` to use the same framework semantics:
+
+```text
+normal model selection / TX restart
+    ->
+F35 init sees BIND_DONE
+    ->
+set flight address 55 08 00 92 14
+    ->
+send flight traffic immediately
+
+radio Bind command
+    ->
+MultiModule core sets BIND_IN_PROGRESS and restarts protocol
+    ->
+F35 sends A0 for 320 periods
+    ->
+F35 sends A1 for 14 periods
+    ->
+BIND_DONE
+    ->
+switch to flight address and normal traffic
+```
+
+The bind timing is still the experimentally proven fixed-time shortcut rather than the stock receiver-acknowledgement-driven transition. This branch tests **normal MultiModule user workflow**, not yet a fully decoded stock handshake.
+
 ## Remaining unknowns
 
 - exact aircraft -> transmitter event that causes the stock A0 -> A1 transition
