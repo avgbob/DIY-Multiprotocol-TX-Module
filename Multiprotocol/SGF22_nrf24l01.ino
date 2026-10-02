@@ -42,6 +42,14 @@ Multiprotocol is distributed in the hope that it will be useful,
 #define SGF22_F35_BIND_COUNT			(SGF22_F35_A0_COUNT + SGF22_F35_A1_COUNT)
 #define SGF22_F35_PAYLOAD_SIZE			9
 
+// F35 bind ACK probe.
+// The stock XN297 appears to leave A0 only after receiver participation.
+// Listen immediately after TX completion for a zero-payload enhanced ACK,
+// while preserving the captured 15.91ms A0 cadence and the timed fallback.
+#define SGF22_F35_ACK_POLL_US			25
+#define SGF22_F35_ACK_TX_TIMEOUT_US	600
+#define SGF22_F35_ACK_WINDOW_US			700
+
 //packet[8]
 #define SGF22_FLAG_3D					0x00
 #define SGF22_FLAG_LIGHT				0x04
@@ -76,6 +84,14 @@ enum {
 static uint8_t  SGF22_F35_seq;
 static uint8_t  SGF22_F35_hop;
 static bool     SGF22_F35_second;
+static uint8_t  SGF22_F35_bind_ack_state;
+static uint16_t SGF22_F35_bind_elapsed;
+
+enum {
+	SGF22_F35_ACK_SEND = 0,
+	SGF22_F35_ACK_WAIT_TX,
+	SGF22_F35_ACK_LISTEN
+};
 
 static const uint8_t SGF22_F35_flight_addr[5] = { 0x55, 0x08, 0x00, 0x92, 0x14 };
 static const uint8_t SGF22_F35_hops[4] = { 0x18, 0x37, 0x27, 0x47 }; // 24,55,39,71
@@ -317,14 +333,81 @@ uint16_t SGF22_callback()
 	{
 		if(IS_BIND_IN_PROGRESS)
 		{
-			// Use the MultiModule framework bind flag and bind_counter.
-			// This makes the radio's Bind command restart the protocol in bind
-			// mode, while normal startup goes directly to the flight link.
 			if(bind_counter > SGF22_F35_A1_COUNT)
-				SGF22_F35_send_bind(0xA0);
-			else
-				SGF22_F35_send_bind(0xA1);
+			{
+				switch(SGF22_F35_bind_ack_state)
+				{
+					case SGF22_F35_ACK_SEND:
+						// Send the known-good A0 and stay in search until the
+						// receiver actually participates. This matches the stock TX:
+						// while another transmitter owns the receiver, A0 continues.
+						SGF22_F35_send_bind(0xA0);
+						SGF22_F35_bind_elapsed = SGF22_F35_ACK_POLL_US;
+						SGF22_F35_bind_ack_state = SGF22_F35_ACK_WAIT_TX;
+						return SGF22_F35_ACK_POLL_US;
 
+					case SGF22_F35_ACK_WAIT_TX:
+						// Turn around as soon as the emulated XN297 packet is actually
+						// off the air.  Do not wait an arbitrary hundreds of us first.
+						if(!XN297_IsPacketSent())
+						{
+							if(SGF22_F35_bind_elapsed < SGF22_F35_ACK_TX_TIMEOUT_US)
+							{
+								SGF22_F35_bind_elapsed += SGF22_F35_ACK_POLL_US;
+								return SGF22_F35_ACK_POLL_US;
+							}
+							// TX status failed to arrive this cycle; abandon only this
+							// probe window and retry A0 on the next captured period.
+							SGF22_F35_bind_ack_state = SGF22_F35_ACK_SEND;
+							return SGF22_F35_BIND_PERIOD - SGF22_F35_bind_elapsed;
+						}
+
+						// Switch directly from powered TX to RX; do not power the NRF
+						// down first or we would throw away the tight ACK turnaround.
+						XN297_SetTxRxMode(RX_EN);
+						SGF22_F35_bind_elapsed += SGF22_F35_ACK_WINDOW_US;
+						SGF22_F35_bind_ack_state = SGF22_F35_ACK_LISTEN;
+						return SGF22_F35_ACK_WINDOW_US;
+
+					case SGF22_F35_ACK_LISTEN:
+					default:
+					{
+						bool ack = false;
+						if(XN297_IsRX())
+						{
+							// A native enhanced-mode ACK has no application payload.
+							// With the RX width configured for zero payload, a valid
+							// decoded length of zero is the event we are looking for.
+							uint8_t len = XN297_ReadEnhancedPayload(packet_in, 0);
+							ack = (len == 0);
+						}
+
+						// Leave RX cleanly; the next A0/A1 send switches straight
+						// back to TX without changing the captured bind cadence.
+						XN297_SetTxRxMode(TXRX_OFF);
+						SGF22_F35_bind_ack_state = SGF22_F35_ACK_SEND;
+
+						if(ack)
+						{
+							debugln("F35 bind ACK detected");
+							// Receiver participation replaces the arbitrary A0 timer.
+							// Keep the captured A1 burst exactly as before.
+							bind_counter = SGF22_F35_A1_COUNT;
+							return 100;
+						}
+
+						// No ACK: preserve the captured 15.91ms A0 cadence and
+						// remain in search indefinitely. Do not force A1 merely
+						// because a timer expired; the stock TX waits for the RX.
+						if(SGF22_F35_bind_elapsed >= SGF22_F35_BIND_PERIOD)
+							return SGF22_F35_ACK_POLL_US;
+						return SGF22_F35_BIND_PERIOD - SGF22_F35_bind_elapsed;
+					}
+				}
+			}
+
+			// A1 remains the captured confirmation burst.
+			SGF22_F35_send_bind(0xA1);
 			if(bind_counter && --bind_counter == 0)
 				SGF22_F35_start_flight();
 
@@ -429,18 +512,19 @@ void SGF22_init()
 		SGF22_F35_seq = 0x80;
 		SGF22_F35_hop = 0;
 		SGF22_F35_second = false;
+		SGF22_F35_bind_ack_state = SGF22_F35_ACK_SEND;
+		SGF22_F35_bind_elapsed = 0;
 
-		if(IS_BIND_IN_PROGRESS)
-		{
-			// Explicit bind requested by the radio.
-			bind_counter = SGF22_F35_BIND_COUNT;
-		}
-		else
-		{
-			// Normal startup: immediately use the already-paired flight link.
-			bind_counter = 0;
-			XN297_SetTXAddr((uint8_t*)SGF22_F35_flight_addr, 5);
-		}
+		// The stock F35 transmitter performs receiver acquisition on every
+		// startup; it does not blindly enter flight traffic.  Do the same here.
+		// This prevents a newly powered Q X7 from barging into a receiver that
+		// is already being controlled by the stock transmitter.
+		BIND_IN_PROGRESS;
+		bind_counter = 0xFFFF; // search sentinel; only a real ACK advances to A1
+
+		// Native enhanced ACK carries zero application bytes, so raw RX width
+		// is PCF + CRC only.
+		XN297_SetRXAddr((uint8_t*)"\xC7\x95\x3C\xBB\xA5", 0);
 		return;
 	}
 
