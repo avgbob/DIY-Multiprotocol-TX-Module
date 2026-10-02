@@ -69,9 +69,16 @@ if (rx_tx_addr[2] > (0xFF - rx_tx_addr[3]))
 val %= 5;
 ```
 
-For the captured F-35, the two meaningful ID-looking bytes are `08` and `92`, separated by `00` in the bind/flight structures. Interpreting `08/92` as the SGF22-style ID selects row 4.
+For the captured F-35, the two meaningful ID-looking bytes are `08` and `92`, separated by `00` in the bind/flight structures. Using either byte order as the SGF22-style two-byte ID lands on row 4:
 
-That interpretation is highly plausible but has only one pair behind it. The current F-35 code still freezes row 4 and therefore is **pair-specific until a second stock pair proves how the ID is encoded and how the flight address is derived**.
+```text
+08,92 -> row 4
+92,08 -> row 4
+```
+
+So the captured channels are **consistent** with those two bytes being the SGF22 family ID, but row 4 does not identify their order or prove the F-35 ID layout. Other nearby two-byte splits of the captured address do not land on row 4, which strengthens the consistency check but still does not provide a derivation.
+
+The current F-35 code therefore keeps the tested pair hard-coded. A second stock pair is required to determine whether the pair ID selects the hop row, whether the hop row is fixed across F-35s, and how the flight address is derived.
 
 ## Stock acquisition state machine
 
@@ -372,9 +379,22 @@ first pair: 08 00 92
 second pair: ?
 ```
 
-If the second pair changes identity and lands on a different SGF22 hop-table row, the implementation should be converted from frozen constants to an SGF22-style model/pair ID immediately.
+Interpret the second pair as follows:
 
-If the identity remains the same across multiple independently purchased aircraft, then factory-global addressing becomes more plausible.
+```text
+ID changes + hop row changes to another existing SGF22 row
+    -> pair ID likely selects the hop row
+    -> derive F-35 hops from the pair ID
+
+ID changes + hop row remains 24,55,39,71
+    -> hop table is likely fixed for this F-35 variant
+    -> only the address/identity path needs to become pair-specific
+
+ID stays the same across independent aircraft
+    -> factory-global identity/addressing becomes more plausible
+```
+
+The second pair is what breaks the current ambiguity. One sample must not be used to invent the ID mapping.
 
 ## Current conclusion
 
