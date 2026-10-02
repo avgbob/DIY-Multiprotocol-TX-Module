@@ -80,6 +80,7 @@ static uint8_t  SGF22_F35_hop;
 static bool     SGF22_F35_second;
 static bool     SGF22_F35_probe_rx_setup;
 static bool     SGF22_F35_probe_check;
+static uint8_t  SGF22_F35_probe_len;
 static uint8_t  SGF22_F35_probe_packet[SGF22_F35_BIND_REPLY_MAX];
 
 static const uint8_t SGF22_F35_flight_addr[5] = { 0x55, 0x08, 0x00, 0x92, 0x14 };
@@ -340,7 +341,7 @@ uint16_t SGF22_callback()
 			{
 				if(XN297_IsRX())
 				{
-					uint8_t len = XN297_ReadEnhancedPayload(SGF22_F35_probe_packet, SGF22_F35_BIND_REPLY_MAX);
+					uint8_t len = XN297_ReadEnhancedPayload(SGF22_F35_probe_packet, SGF22_F35_probe_len);
 					if(len != 255)
 					{
 						// Receiver participation detected: start the captured A1 phase now.
@@ -348,10 +349,20 @@ uint16_t SGF22_callback()
 					}
 				}
 				SGF22_F35_probe_check = false;
+				if(bind_counter > SGF22_F35_A1_COUNT)
+				{
+					SGF22_F35_probe_len++;
+					if(SGF22_F35_probe_len > SGF22_F35_BIND_REPLY_MAX)
+						SGF22_F35_probe_len = 0;
+				}
 			}
 
 			if(bind_counter > SGF22_F35_A1_COUNT)
 			{
+				// The raw NRF receiver uses a fixed payload width. We do not know
+				// the aircraft reply length yet, so scan all enhanced-payload sizes
+				// (0..28 bytes, which become 4..32 raw bytes with PCF+CRC).
+				XN297_SetRXAddr((uint8_t*)"\xC7\x95\x3C\xBB\xA5", SGF22_F35_probe_len);
 				SGF22_F35_send_bind(0xA0);
 				if(bind_counter)
 					bind_counter--;
@@ -467,14 +478,12 @@ void SGF22_init()
 
 		SGF22_F35_probe_rx_setup = false;
 		SGF22_F35_probe_check = false;
+		SGF22_F35_probe_len = 0;
 
 		if(IS_BIND_IN_PROGRESS)
 		{
 			// Explicit bind requested by the radio.
 			bind_counter = SGF22_F35_BIND_COUNT;
-			// Listen for a possible receiver reply on the same address used by A0.
-			// 28 bytes gives the enhanced decoder enough room for any short reply.
-			XN297_SetRXAddr((uint8_t*)"\xC7\x95\x3C\xBB\xA5", SGF22_F35_BIND_REPLY_MAX);
 		}
 		else
 		{
