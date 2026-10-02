@@ -446,3 +446,15 @@ payload: 9 bytes
 ```
 
 The next priority is not more bind sniffing. It is proving fast recovery behavior and then separating normal startup from explicit binding.
+
+
+## 2026-10-02: receiver ACK and stock-style acquisition
+
+Bench testing showed that the earlier fixed ~5.1 s A0 timer was not the real stock transition mechanism. A probe which turns the NRF around immediately after A0 TX completion and listens for a zero-payload enhanced XN297 ACK causes bind to advance to A1 much faster, matching the observed stock behavior.
+
+Additional two-transmitter tests showed:
+- If the Q X7 is already controlling the aircraft, the stock TX remains blinking/searching and acquires control almost immediately after the Q X7 is switched off.
+- If the stock TX is controlling the aircraft, blindly starting Q X7 flight traffic causes control-surface jitter and the stock TX reacts/beeps.
+- Therefore normal Q X7 startup must not jump directly to flight packets. It should perform A0 acquisition and require the receiver ACK before A1/flight, just like the stock transmitter.
+
+The post-acquisition throttle-up/throttle-down gesture observed with the stock TX remains separate from the RF acquisition handshake and should not be automated until its exact arming semantics are proven.
