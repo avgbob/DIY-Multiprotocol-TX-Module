@@ -392,6 +392,32 @@ switch to flight address and normal traffic
 
 The bind timing is still the experimentally proven fixed-time shortcut rather than the stock receiver-acknowledgement-driven transition. This branch tests **normal MultiModule user workflow**, not yet a fully decoded stock handshake.
 
+## Validation result: normal Bind command works
+
+The `sayzon-f35-normal-bind` branch has now been bench-tested with the radio's normal **Bind** control and the aircraft successfully binds.
+
+This validates the MultiModule-side workflow:
+
+```text
+radio Bind command
+    ->
+MultiModule core sets BIND_IN_PROGRESS
+    ->
+F35 protocol is restarted in bind mode
+    ->
+A0 timed phase
+    ->
+A1 timed phase
+    ->
+BIND_DONE
+    ->
+normal flight traffic
+```
+
+This does **not** yet prove that the timed A0/A1 shortcut is universal across multiple aircraft/transmitter pairs, but it confirms that the protocol now works with the normal MultiModule user-facing bind flow rather than forcing bind on every startup.
+
+The next validation target is normal startup/recovery **without pressing Bind**.
+
 ## Remaining unknowns
 
 - exact aircraft -> transmitter event that causes the stock A0 -> A1 transition
