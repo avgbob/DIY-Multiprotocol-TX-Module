@@ -335,15 +335,45 @@ This will show whether recovery requires a fresh A0 acquisition after link loss 
 
 ## RX/telemetry path after A1
 
-Current F-35 code has no normal receive/telemetry phase after A1.
-
-Upstream SGF22 can receive a 3-byte enhanced packet on the bind address:
+Stock flight captures now show reverse enhanced traffic on the **flight address**
+`55 08 00 92 14`:
 
 ```text
-[id0, id1, battery-state]
+P(0)=
+P(1)= E0
+P(1)= F0
 ```
 
-The F-35 stock transmitter should be checked for low-battery indication/beeps. If it has them, a family-style telemetry response is a strong candidate and should be sniffed after A1.
+The one-byte `E0/F0` response is the current telemetry candidate.  The two values differ
+only by bit `0x10`, but its meaning and polarity are **not yet assigned**.  A controlled
+aircraft-battery test is required before calling it battery-low.
+
+The experimental branch `sayzon-f35-telemetry-probe` adds a receive window after every
+F-35 flight application packet without changing the captured 3.970 ms packet cadence:
+
+```text
+send flight packet
+-> poll TX complete
+-> direct TX -> RX turnaround
+-> listen 700 us for a 1-byte enhanced response
+-> restore TX timing for the remainder of the 3.970 ms slot
+```
+
+The probe configures the F-35 flight address for a one-byte receive payload, intentionally
+ignoring zero-length ACKs so the `E0/F0` application byte can be isolated.  When a valid
+one-byte response is decoded, its raw value is exposed through the existing SGF22 Hub
+telemetry path as `v_lipo1` / A1-BATT.  This is a **raw probe value**, not a voltage
+conversion.
+
+Expected first validation:
+
+```text
+healthy / normal aircraft state -> observe raw E0 or F0 on the radio
+change aircraft battery state   -> determine whether bit 0x10 changes with warning state
+```
+
+Only after that correlation should the probe be converted from raw status to a user-facing
+battery-good / battery-low telemetry sensor.
 
 ## Current code limitation
 
