@@ -338,10 +338,10 @@ uint16_t SGF22_callback()
 				switch(SGF22_F35_bind_ack_state)
 				{
 					case SGF22_F35_ACK_SEND:
-						// Send the known-good A0 exactly as before.
+						// Send the known-good A0 and stay in search until the
+						// receiver actually participates. This matches the stock TX:
+						// while another transmitter owns the receiver, A0 continues.
 						SGF22_F35_send_bind(0xA0);
-						if(bind_counter)
-							bind_counter--;
 						SGF22_F35_bind_elapsed = SGF22_F35_ACK_POLL_US;
 						SGF22_F35_bind_ack_state = SGF22_F35_ACK_WAIT_TX;
 						return SGF22_F35_ACK_POLL_US;
@@ -356,8 +356,8 @@ uint16_t SGF22_callback()
 								SGF22_F35_bind_elapsed += SGF22_F35_ACK_POLL_US;
 								return SGF22_F35_ACK_POLL_US;
 							}
-							// TX status failed to arrive; preserve the old timed bind
-							// rather than getting stuck in the probe.
+							// TX status failed to arrive this cycle; abandon only this
+							// probe window and retry A0 on the next captured period.
 							SGF22_F35_bind_ack_state = SGF22_F35_ACK_SEND;
 							return SGF22_F35_BIND_PERIOD - SGF22_F35_bind_elapsed;
 						}
@@ -396,8 +396,9 @@ uint16_t SGF22_callback()
 							return 100;
 						}
 
-						// No ACK: keep the exact captured A0 period and retain the
-						// known-good ~5.1s fallback.
+						// No ACK: preserve the captured 15.91ms A0 cadence and
+						// remain in search indefinitely. Do not force A1 merely
+						// because a timer expired; the stock TX waits for the RX.
 						if(SGF22_F35_bind_elapsed >= SGF22_F35_BIND_PERIOD)
 							return SGF22_F35_ACK_POLL_US;
 						return SGF22_F35_BIND_PERIOD - SGF22_F35_bind_elapsed;
@@ -514,20 +515,16 @@ void SGF22_init()
 		SGF22_F35_bind_ack_state = SGF22_F35_ACK_SEND;
 		SGF22_F35_bind_elapsed = 0;
 
-		if(IS_BIND_IN_PROGRESS)
-		{
-			// Explicit bind requested by the radio.
-			bind_counter = SGF22_F35_BIND_COUNT;
-			// Override SGF22 telemetry RX width: a native enhanced ACK carries
-			// zero application bytes, so raw RX width is PCF + CRC only.
-			XN297_SetRXAddr((uint8_t*)"\xC7\x95\x3C\xBB\xA5", 0);
-		}
-		else
-		{
-			// Normal startup: immediately use the already-paired flight link.
-			bind_counter = 0;
-			XN297_SetTXAddr((uint8_t*)SGF22_F35_flight_addr, 5);
-		}
+		// The stock F35 transmitter performs receiver acquisition on every
+		// startup; it does not blindly enter flight traffic.  Do the same here.
+		// This prevents a newly powered Q X7 from barging into a receiver that
+		// is already being controlled by the stock transmitter.
+		BIND_IN_PROGRESS;
+		bind_counter = 0xFFFF; // search sentinel; only a real ACK advances to A1
+
+		// Native enhanced ACK carries zero application bytes, so raw RX width
+		// is PCF + CRC only.
+		XN297_SetRXAddr((uint8_t*)"\xC7\x95\x3C\xBB\xA5", 0);
 		return;
 	}
 
