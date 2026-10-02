@@ -517,6 +517,7 @@ enum SGF22
 	SGF22_J20 		= 2,
 	SGF22_CX10		= 3,
 	SGF22_T28 		= 4,
+	SGF22_F35		= 5,
 };
 enum JIABAILE
 {
