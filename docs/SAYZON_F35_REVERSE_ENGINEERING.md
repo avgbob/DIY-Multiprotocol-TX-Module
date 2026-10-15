@@ -369,7 +369,7 @@ static const uint8_t SGF22_F35_hops[4] =
     { 0x18, 0x37, 0x27, 0x47 };
 ```
 
-That is intentionally left as the known-working single-pair implementation.
+Those values are intentionally preserved from the one captured stock transmitter/aircraft pair, even though that configuration has now successfully controlled two different receiver airframes.
 
 It should **not** be generalized by guessing an ID/address derivation from one sample. A second stock transmitter/aircraft capture is required first.
 
