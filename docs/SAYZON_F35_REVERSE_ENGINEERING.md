@@ -164,6 +164,33 @@ is sent on the same bind channel/address for roughly 200-225 ms.
 
 PID continuity across A0 -> A1 supports A1 being transmitter-originated.
 
+### Candidate additional bind-channel message (`0x51`) — **hypothesis; not decoded**
+
+The [unmodified stock-TX XN297Dump capture from October 2](captures/SAYZON_XN297_20261002_030108_bind_ACK_and_A1.txt#L575-L604) contains an **additional CRC-valid six-byte enhanced packet** on RF channel 28, using the standard bind address `C7 95 3C BB A5`, just after several A1 frames and before the first captured flight data:
+
+```text
+line 575: P(0)                            [A0 traffic resumes afterward]
+line 576+: A0 09 0B 81 00 08 00 92     [continues after that P(0)]
+line 597: P(0)
+lines 598-601: A1 00 00 00 00 08 00 92
+line 602: P(6)= 51 00 00 08 00 92    [enhanced PID 3, bind address]
+line 603: P(0)                        [enhanced PID 0, bind address]
+line 604: P(9)= 88 01 7F 80 7F 10 00 10 42  [flight address 55 08 00 92 14]
+```
+
+**Direct observations:** the six-byte `51 00 00 08 00 92` frame exists in the original log, contains the same `08 00 92` identity fragment as A0/A1, appears after captured A1 traffic, and precedes the transition to the flight address. A `P(0)` also appears **earlier** during A0, without an immediate transition to A1. The sniffer is passive, fixed-channel and misses some packets: its `us` times are intervals between received packets, not guaranteed intervals between every transmission.
+
+**Possible interpretations, not yet established:**
+- `0x51` could be a final bind/confirmation/end-of-acquisition command from the *stock transmitter*.
+- Alternatively it could be a receiver-originated confirmation/status message, or unrelated to acquisition. The passive sniffer does **not** label transmitting direction; we must not classify it as an RX packet just because it follows A1.
+- The earlier `P(0)` could be a genuine receiver reply missed or not acted on by the stock TX, a differently timed ACK, or some other zero-length enhanced event. Its observation **does not** prove the stock transmitter must advance on every decoded `P(0)`.
+
+**Why this matters:** the present experimental v7 can control two physical airframes using an A0 → CRC-valid zero-length enhanced receive event → timed A1 → flight model, **without explicitly sending a `0x51` application packet**. Therefore this log does not show that a `0x51` step is required for either tested airframe, or justify changing the working firmware. It might matter for cold bind, receiver ownership/recovery, or different receiver revisions.
+
+**Smallest validating experiment (EDF motor disconnected):** capture multiple independent cold binds with the stock transmitter, logging the entire A0/A1/`0x51`/flight transition; annotate original-TX vs receiver power events. Confirm whether `0x51` appears consistently and whether its enhanced PID sequence is continuous with A1. If possible capture TX/RX direction via controlled TX-only and RX-only sessions or a second synchronized sniffer; distinguish the first `P(0)` that did not end A0 from the later one. Compare the second stock transmitter's identity and bind sequence. Only then consider a code change.
+
+**Status:** **OPEN HYPOTHESIS — NO FIRMWARE CHANGE**. Do not imply native-ACK causality, a fourth mandatory handshake phase, or proven message direction from this single fixed-channel trace.
+
 ## Pair ID and flight address
 
 Captured flight address:
