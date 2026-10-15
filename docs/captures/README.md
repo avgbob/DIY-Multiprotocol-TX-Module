@@ -10,7 +10,7 @@ Important caveats:
 - Only files classified `raw-RX-capture` contribute to the enhanced packet count. Counts are lexical summaries, **not** deduplicated or verified unique events; repeated/overlapping logs may exist.
 - Some files are raw RF scanner configuration logs; two files are notes or embedded markdown rather than original plain serial RX logs.
 
-> **Public sample captures:** Four original uploaded logs have been committed byte-for-byte below. The remaining 31 original attachments are preserved in the separate complete recovery ZIP provided to the experimenter for posting to upstream issue #1196.
+> **Public sample captures:** Six original uploaded logs have been committed byte-for-byte below. The remaining 29 original attachments are preserved in the separate complete recovery ZIP provided to the experimenter for posting to upstream issue #1196.
 
 **Direct links (unaltered original uploads):**
 
@@ -18,6 +18,8 @@ Important caveats:
 - [2026-10-02 03:49:30 — A0 to A1 transition](SAYZON_XN297_20261002_034930_A0_to_A1.txt)
 - [2026-10-02 03:58:44 — A0-only capture](SAYZON_XN297_20261002_035844_A0_only.txt)
 - [2026-10-02 02:52:14 — flight-channel traffic, C=24](SAYZON_XN297_20261002_025214_flight_CH24.txt)
+- [2026-10-02 15:24:21 — E0/F0 one-byte enhanced response examples](SAYZON_XN297_20261002_152421_flight_E0_F0_probe.txt)
+- [2026-10-03 14:15:18 — later control/trim sweep capture](SAYZON_XN297_20261003_141518_control_trim_sweep.txt)
 
 ## Recommended reviewer reading order
 
