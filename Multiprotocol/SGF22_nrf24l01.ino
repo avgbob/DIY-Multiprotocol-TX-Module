@@ -33,8 +33,16 @@ Multiprotocol is distributed in the hope that it will be useful,
 #define SGF22_T28_BIND_RF_CHANNEL  		28
 #define SGF22_F35_BIND_RF_CHANNEL		28
 
-// SAYZON/Park10-style F-35 reverse-engineering values.
-// Experimental: fixed-time A0 -> A1 -> flight transition.
+// SAYZON/Park10 F-35 EXPERIMENTAL branch — not flight-ready.
+// CH5: three proven X-PILOT values; CH6: circling candidate 0x20.
+// CH7: trial mode byte 0x00; CH8: trial aux 0x02 (find); CH9: trial
+// aux 0x04 (stunt). Leave CH7/8/9 LOW for unchanged v7 flight packets.
+// The 0x51 handshake hypothesis is gated OFF unless deliberately tested.
+// Use ONLY with the EDF electrically disconnected during first validation.
+#define SGF22_F35_TRIAL_MODE_00       1
+#define SGF22_F35_TRIAL_AUX_02        1
+#define SGF22_F35_TRIAL_AUX_04        1
+#define SGF22_F35_TRIAL_POST_A1_51    0
 #define SGF22_F35_BIND_PERIOD			15910
 #define SGF22_F35_DATA_PERIOD			3970
 #define SGF22_F35_A0_COUNT				320		// ~5.09s at 15.91ms
@@ -93,6 +101,7 @@ static bool     SGF22_F35_seq_high;         // stock startup/session flag 0x80
 static uint8_t  SGF22_F35_hop;
 static bool     SGF22_F35_second;
 static uint8_t  SGF22_F35_bind_ack_state;
+static bool     SGF22_F35_bind_ack_seen; // framework End_Bind() guard
 static uint16_t SGF22_F35_bind_elapsed;
 static uint8_t  SGF22_F35_data_state;
 static uint16_t SGF22_F35_data_elapsed;
@@ -148,13 +157,25 @@ static void __attribute__((unused)) SGF22_F35_send_bind(uint8_t type)
 	XN297_WriteEnhancedPayload(packet, 8, 0);
 }
 
+// Optional one-off 0x51 packet from stock log: NOT PROVEN NECESSARY.
+#if SGF22_F35_TRIAL_POST_A1_51
+static void __attribute__((unused)) SGF22_F35_send_51()
+{
+    packet[0]=0x51; packet[1]=0x00; packet[2]=0x00;
+    packet[3]=0x08; packet[4]=0x00; packet[5]=0x92;
+    XN297_SetPower();
+    XN297_SetTxRxMode(TX_EN);
+    XN297_WriteEnhancedPayload(packet, 6, 0);
+}
+#endif
+
 static void __attribute__((unused)) SGF22_F35_start_flight()
 {
 	BIND_DONE;
 	XN297_SetTXAddr((uint8_t*)SGF22_F35_flight_addr, 5);
 
 	// Stock flight telemetry/ACK-payload traffic is one application byte
-	// (observed E0/F0) on the flight address.  A width of 1 intentionally
+	// (observed D0/E0/F0) on the flight address.  A width of 1 intentionally
 	// ignores the zero-length ACKs and lets this probe concentrate on status.
 	XN297_SetRXAddr((uint8_t*)SGF22_F35_flight_addr, 1);
 
@@ -203,7 +224,19 @@ static void __attribute__((unused)) SGF22_F35_send_data()
 	else
 		packet[5] = 0x10;
 
-	packet[6] = CH6_SW ? 0x20 : 0x00;
+    #if SGF22_F35_TRIAL_MODE_00
+    if(CH7_SW)
+        packet[5] = 0x00; // sustained stock state; meaning unconfirmed
+    #endif
+    packet[6] = CH6_SW ? 0x20 : 0x00; // circling/loiter candidate
+    #if SGF22_F35_TRIAL_AUX_02
+    if(CH8_SW)
+        packet[6] |= 0x02; // find-aircraft candidate: LOW confidence
+    #endif
+    #if SGF22_F35_TRIAL_AUX_04
+    if(CH9_SW)
+        packet[6] |= 0x04; // stunt candidate: LOW confidence
+    #endif
 	packet[7] = 0x10;
 	packet[8] = 0x42;
 
@@ -373,7 +406,11 @@ uint16_t SGF22_callback()
 	{
 		if(IS_BIND_IN_PROGRESS)
 		{
-			if(bind_counter > SGF22_F35_A1_COUNT)
+			// Global End_Bind() can force bind_counter to 2 before
+            // any receiver participation. Do NOT interpret this as an ACK.
+            if(!SGF22_F35_bind_ack_seen && bind_counter <= SGF22_F35_A1_COUNT)
+                bind_counter = 0xFFFF;
+            if(!SGF22_F35_bind_ack_seen)
 			{
 				switch(SGF22_F35_bind_ack_state)
 				{
@@ -429,7 +466,8 @@ uint16_t SGF22_callback()
 
 						if(ack)
 						{
-							debugln("F35 bind ACK detected");
+							SGF22_F35_bind_ack_seen = true;
+                        debugln("F35 bind ACK detected");
 							// Receiver participation replaces the arbitrary A0 timer.
 							// Keep the captured A1 burst exactly as before.
 							bind_counter = SGF22_F35_A1_COUNT;
@@ -447,7 +485,12 @@ uint16_t SGF22_callback()
 			}
 
 			// A1 remains the captured confirmation burst.
-			SGF22_F35_send_bind(0xA1);
+			#if SGF22_F35_TRIAL_POST_A1_51
+            if(bind_counter == 1)
+                SGF22_F35_send_51();
+            else
+            #endif
+                SGF22_F35_send_bind(0xA1);
 			if(bind_counter && --bind_counter == 0)
 				SGF22_F35_start_flight();
 
@@ -496,10 +539,8 @@ uint16_t SGF22_callback()
 						SGF22_F35_telem_status = packet_in[0];
 
 						#ifdef SGF22_HUB_TELEMETRY
-							// Probe behavior: expose the raw E0/F0 byte as A1/BATT.
-							// Do not assign battery-low polarity until a controlled
-							// pack-voltage test identifies the changing 0x10 bit.
-							v_lipo1 = SGF22_F35_telem_status;
+                        // Preserve D0/E0/F0 as raw status only; avoid
+                        // misleading voltage readings from unknown codes.
 							telemetry_link = 1;
 							telemetry_lost = 0;
 						#endif
@@ -614,6 +655,7 @@ void SGF22_init()
 		SGF22_F35_hop = 0;
 		SGF22_F35_second = false;
 		SGF22_F35_bind_ack_state = SGF22_F35_ACK_SEND;
+        SGF22_F35_bind_ack_seen = false;
 		SGF22_F35_bind_elapsed = 0;
 		SGF22_F35_data_state = SGF22_F35_DATA_SEND;
 		SGF22_F35_data_elapsed = 0;
