@@ -237,8 +237,28 @@ static void __attribute__((unused)) SGF22_F35_send_data()
     if(CH9_SW)
         packet[6] |= 0x04; // stunt candidate: LOW confidence
     #endif
-	packet[7] = 0x10;
-	packet[8] = 0x42;
+    // Experimental packed trim probe, disabled unless CH14 > +threshold.
+    // The two per-byte step sizes (+/-1, +/-0x20) and (+/-1, +/-4)
+    // occur in original Oct 3 captures. Which physical trim uses which
+    // field has NOT been established. CH10..13 are four raw probes,
+    // NOT labelled rudder/elevator/aileron/throttle.
+    // CH14 LOW leaves packet identical to known-working v7.
+    packet[7] = 0x10;
+    packet[8] = 0x42;
+    if(CH14_SW)
+    {
+        if(Channel_data[CH10] > CHANNEL_MAX_COMMAND)      packet[7] += 0x01;
+        else if(Channel_data[CH10] < CHANNEL_MIN_COMMAND) packet[7] -= 0x01;
+
+        if(Channel_data[CH11] > CHANNEL_MAX_COMMAND)      packet[7] += 0x20;
+        else if(Channel_data[CH11] < CHANNEL_MIN_COMMAND) packet[7] -= 0x20;
+
+        if(Channel_data[CH12] > CHANNEL_MAX_COMMAND)      packet[8] += 0x01;
+        else if(Channel_data[CH12] < CHANNEL_MIN_COMMAND) packet[8] -= 0x01;
+
+        if(Channel_data[CH13] > CHANNEL_MAX_COMMAND)      packet[8] += 0x04;
+        else if(Channel_data[CH13] < CHANNEL_MIN_COMMAND) packet[8] -= 0x04;
+    }
 
 	XN297_SetPower();
 	XN297_SetTxRxMode(TX_EN);
