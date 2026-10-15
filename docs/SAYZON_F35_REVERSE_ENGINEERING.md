@@ -1,6 +1,18 @@
 # SAYZON 40 mm F-35 / ParkTen-style 2.4 GHz protocol reverse engineering
 
-Status: **single-pair engineering beta; not yet a general F-35 release**
+Status: **experimental SGF22-family F-35 variant; binding and control validated on two separate SAYZON F-35 receivers using one captured stock-pair identity. Not yet a general F-35 release.**
+
+**Development and review:** [avgbob/DIY-Multiprotocol-TX-Module PR #1](https://github.com/avgbob/DIY-Multiprotocol-TX-Module/pull/1) · [experimental implementation](https://github.com/avgbob/DIY-Multiprotocol-TX-Module/blob/sayzon-f35-beta-candidate/Multiprotocol/SGF22_nrf24l01.ino) · [protocol configuration](https://github.com/avgbob/DIY-Multiprotocol-TX-Module/blob/sayzon-f35-beta-candidate/Protocols_Details.md)
+
+## October 14, 2026: independent receiver-airframe validation
+
+**Reported bench result: PASS for binding and control operation on a replacement aircraft.** A replacement SAYZON 40 mm F-35 bound immediately to the same FrSky Taranis Q X7 running the existing modified MultiModule firmware, and the user verified that all controls operated as intended. The original F-35 had previously bound and operated with that firmware. The replacement did not require a newly derived identity, address, hop sequence, or firmware adjustment.
+
+This establishes **observed interoperability with two separate physical receivers**, not a fully decoded general-purpose pairing scheme. Both tests used the same experimental hard-coded identity `08 00 92`, flight address `55 08 00 92 14`, and hops `24,55,39,71`. We have **not** captured the stock transmitter paired with the replacement aircraft, so we cannot conclude whether those values are factory-global, shared by some production units, or otherwise accepted by multiple receivers. A second independent *stock transmitter/aircraft RF capture* is still required to derive any general pair-ID/address/hop mapping.
+
+**Not yet validated on the replacement receiver:** signal-loss failsafe, automatic reacquisition after signal loss, repeated power cycling, sustained RF reliability, actual on-air ACK equivalence, operation on other RF module hardware, or wider manufacturing revisions. Keep the PR in draft/engineering-test status; perform safety testing with the EDF/motor disconnected.
+
+
 
 This document records the reverse engineering and current experimental MultiModule implementation for a SAYZON 40 mm F-35 EDF aircraft.
 
