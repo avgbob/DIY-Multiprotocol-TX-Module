@@ -2432,7 +2432,7 @@ Notes:
  - CH6/CH9/CH13 (STUNT, RTH, RTH Set) are NOT required to be bound, or used to fly the plane.
  - CH9 (RTH) WILL function without CH13 (RTH Set) bound/used.
 
-### Sub_protocol F35 (single-pair experimental)
+### Sub_protocol F35 (experimental; two receiver-airframes validated)
 Model: SAYZON 40 mm F-35 EDF / closely related ParkTen-style F-35
 
 CH1|CH2|CH3|CH4|CH5
@@ -2447,7 +2447,7 @@ Startup sends the captured A0 search frame and waits for the receiver's empty en
 
 Motor arming is still under investigation. A small throttle excursion followed by returning low appeared sufficient on the test aircraft, but no automatic arming movement is generated.
 
-**Experimental:** validated on one aircraft/transmitter pair only. A second stock-pair capture is required before general release. Test with the EDF/motor disconnected first. See [SAYZON F35 reverse-engineering notes](docs/SAYZON_F35_REVERSE_ENGINEERING.md).
+**Experimental:** the same modified Q X7 firmware has bound and controlled the original and a replacement SAYZON F-35, with all controls reported functional on the replacement (2026-10-14). This is **two-aircraft functional validation**, not two independent stock transmitter/address captures: the original hard-coded pair ID, flight address and hops are still used. A second stock-TX/aircraft capture is needed before generalizing identity/address derivation or releasing broadly. Link-loss recovery, failsafe, extended reliability and alternate RF hardware remain unverified. Test with the EDF/motor disconnected first. [Follow engineering PR #1](https://github.com/avgbob/DIY-Multiprotocol-TX-Module/pull/1) · [Full reverse-engineering notes](docs/SAYZON_F35_REVERSE_ENGINEERING.md).
 
 ## Shenqi - *19*
 Autobind protocol
