@@ -2,6 +2,10 @@
 
 **Status:** two-aircraft binding/control validation **PASS**; **NOT flight-ready**; this is an experimental development snapshot, not a stable firmware release.
 
+**[Public experimental pre-release — download `f35v7.bin`](https://github.com/avgbob/DIY-Multiprotocol-TX-Module/releases/tag/sayzon-f35-v7-exp.1)** · [Direct firmware download](https://github.com/avgbob/DIY-Multiprotocol-TX-Module/releases/download/sayzon-f35-v7-exp.1/f35v7.bin) · [Complete technical reverse-engineering notes](SAYZON_F35_REVERSE_ENGINEERING.md)
+
+> **Hardware target:** `f35v7.bin` was flashed to an **iRangeX IRX4 Plus external STM32 MultiModule** attached to a **FrSky Taranis Q X7**. It is **MultiModule firmware**, **not Q X7 transmitter firmware**. Do not attempt to flash it to the Q X7 radio itself or to unverified modules.
+
 **Primary discussion:** [avgbob/DIY-Multiprotocol-TX-Module PR #1](https://github.com/avgbob/DIY-Multiprotocol-TX-Module/pull/1)
 
 ## Tested firmware identity
@@ -23,7 +27,7 @@
 - Additional matching archived configuration files (after line-ending normalization): `_MyConfig.h`, `_Config.h`, `Multiprotocol.h`, `Multi_Config.ino`, `Validate.h`, `Binary_Signature.ino`.
 - Build settings in `_MyConfig.h`: `MULTI_AIR`; serial-only mode (`ENABLE_PPM` undefined); bootloader enabled through normal configuration.
 - **An independent bit-identical rebuild of the binary has NOT been verified.**
-- GitHub source and this file **do not by themselves host the firmware download**. A public GitHub binary/release asset should be made available separately before directing external testers to flash it.
+- The exact binary is hosted as the [`f35v7.bin` GitHub pre-release asset](https://github.com/avgbob/DIY-Multiprotocol-TX-Module/releases/download/sayzon-f35-v7-exp.1/f35v7.bin). The release asset's SHA-256 was verified against the tester-provided binary.
 
 ## What v7 adds relative to earlier PR #1
 
@@ -43,7 +47,7 @@
 
 ## Hardware and flashing caution
 
-**For external developers and bench testers only.** This binary is for compatible STM32 MultiModule hardware, **not for flashing the Q X7 radio firmware**. Compatibility with alternate modules and module bootloader variants is unverified. Choose the correct flash method for your installed bootloader; see [STM32 compilation/flash instructions](Compiling_STM32.md) and [Flash from transmitter](Flash_from_Tx.md).
+**For external developers and bench testers only.** The tested configuration is the **iRangeX IRX4 Plus external STM32 MultiModule used with the FrSky Q X7**. **Flash this .bin to the MultiModule, NOT to the Q X7 radio itself.** Compatibility with alternate modules and module bootloader variants is unverified. Choose the correct flash method for your installed bootloader; see [STM32 compilation/flash instructions](Compiling_STM32.md) and [Flash from transmitter](Flash_from_Tx.md).
 
 Run first tests with the **EDF/motor electrically disconnected**. Do not conduct an unrestricted flight on the strength of bind/control success alone. Preserve a known-good backup of the module firmware.
 
