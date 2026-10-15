@@ -23,7 +23,7 @@ Earlier notes incorrectly described the full serial dumps as unavailable. **They
 - [A0-only: 20261002-035844](captures/SAYZON_XN297_20261002_035844_A0_only.txt). Over 1000 enhanced A0 records, no captured A1 in this file; **the aircraft's power state for this particular capture is not independently established by the log**.
 - [Flight packets: 20261002-025214](captures/SAYZON_XN297_20261002_025214_flight_CH24.txt). Captures `C=24` control traffic, some ~3.97 ms intervals, and a [one-byte `F0` packet](captures/SAYZON_XN297_20261002_025214_flight_CH24.txt#L611).
 - [Flight E0/F0 observations: 20261002-152421](captures/SAYZON_XN297_20261002_152421_flight_E0_F0_probe.txt#L360-L378). Full log includes ~8,676 enhanced RX records, with 32 one-byte `E0` and one `F0` records on C=24. **No low-battery/voltage meaning is asserted**.
-- [Control/trim capture: 20261003-141518](captures/SAYZON_XN297_20261003_141518_control_trim_sweep.txt).
+- [Isolated mode-switch capture: 20261003-141518](captures/SAYZON_XN297_20261003_141518_control_trim_sweep.txt). The operator confirmed using the mode switch. Byte 5 changes `18 → 10 → 14 → 18 → 14 → 10` with other control/trim bytes steady; this is not evidence of trim-button encoding.
 
 The [full capture index](captures/README.md) lists all 35 original file names, byte sizes and counts, with a checksum-verified complete ZIP prepared for posting as an upstream issue attachment. The archive is preserved **outside GitHub** until attached; the six linked raw files above are already public.
 
@@ -60,8 +60,8 @@ The following are **values derived from recovered XN297Dump serial captures and 
 | Receiver response | Zero-application-byte **enhanced ACK is our interpretation**; emulated RX check `XN297_ReadEnhancedPayload(packet_in, 0) == 0` works on tested IRX4 Plus | Exact on-air receiver ACK and PCF/PID handling not independently proven |
 | Flight address | `55 08 00 92 14` | Hard-coded from one stock pair |
 | Flight hop sequence | 24 → 55 → 39 → 71 (`18 37 27 47` hex) | Matches SGF22 upstream hop table row 4; general derivation unknown |
-| Flight packet | 9 bytes: `SEQ THR RUD ELE AIL MODE AUX 10 42` | Axes present on surface controls; presumed fine-tune sentinel interpretation remains tentative |
-| Mode byte | `10` / `14` / `18` (hex) | Physical mode labels not independently verified |
+| Flight packet | 9 bytes: `SEQ THR RUD ELE AIL MODE AUX TRIM? TRIM?` | The v7 implementation currently sends constant `10 42` as bytes 7–8, but stock capture sessions show changes in those fields during separate trim-related actions. Do **not** treat them as permanently constant or attribute byte-5 mode changes to trim |
+| Mode byte | `10` / `14` / `18` (hex) | **Confirmed mode-switch-associated values** in the isolated October 3 capture. Mirrors existing SGF22's CH5 three-position *mode selection*, though SGF22 encodes mode flags in packet byte 8 while this F-35 variant uses byte 5. Physical mode labels still unverified |
 | Channel floors/centers | throttle floor `01`; rudder/aileron center `7F`; elevator center `80` | Exact end-point and trim behavior not completely characterized |
 | Flight transmission interval | Approximately **3.96–3.98 ms** between captured packets at the relevant observed sequence; implementation uses 3970 µs | Same-channel pair / inter-pair timing and precise hop relationship not fully resolved |
 | Byte 0 sequence | `80 81`, `84 85`, ... through `B8 B9` observed during a startup/session | v7 source also implements a lower sequence count and a high-bit flag that CH6 activation clears; full state interpretation still uncertain |
