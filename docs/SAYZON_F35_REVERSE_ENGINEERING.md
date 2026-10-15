@@ -4,6 +4,20 @@ Status: **experimental SGF22-family F-35 variant; binding and control validated 
 
 **Development and review:** [avgbob/DIY-Multiprotocol-TX-Module PR #1](https://github.com/avgbob/DIY-Multiprotocol-TX-Module/pull/1) · [experimental implementation](https://github.com/avgbob/DIY-Multiprotocol-TX-Module/blob/sayzon-f35-beta-candidate/Multiprotocol/SGF22_nrf24l01.ino) · [protocol configuration](https://github.com/avgbob/DIY-Multiprotocol-TX-Module/blob/sayzon-f35-beta-candidate/Protocols_Details.md)
 
+## v7 source and binary provenance (verified October 14, 2026)
+
+The tester confirmed **`f35v7.bin` was the exact binary flashed to the IRX4 Plus** for both successful aircraft tests.
+
+- Binary size: **116,560 bytes**.
+- SHA-256: `3d1f1361cb77f2878216e52c040e12828ad88cb7046fcdeaf403e28a7a235479`.
+- Embedded MultiModule version: **1.3.4.74**, STM32 firmware.
+- Source: the uploaded `Multiprotocol - Copy.zip` contains the same binary and STM32 AIR, serial-only external-module build profile in `Multiprotocol/_MyConfig.h`.
+- The ZIP's `Multiprotocol/SGF22_nrf24l01.ino` is now **exactly matched to the PR source** after normalizing CRLF to LF. Git blob SHA: `5e1abb555b7ddb5496117cb8d1acec28ea25ba76`.
+- Other compared build files also match the ZIP after line-ending normalization: `_MyConfig.h`, `_Config.h`, `Multiprotocol.h`, `Multi_Config.ino`, `Validate.h`, and `Binary_Signature.ino`.
+- **Build reproducibility has not been established:** no independent rebuild has yet been verified to produce the same `f35v7.bin`. These checks establish provenance of source file content and the user's flashed binary, not complete reproducibility of the binary.
+
+[Review PR #1](https://github.com/avgbob/DIY-Multiprotocol-TX-Module/pull/1) · [v7 experimental release notes](SAYZON_F35_V7_RELEASE.md)
+
 ## October 14, 2026: independent receiver-airframe validation
 
 **Reported bench result: PASS for binding and control operation on a replacement aircraft.** A replacement SAYZON 40 mm F-35 bound immediately to the same FrSky Taranis Q X7 running the existing modified MultiModule firmware, and the user verified that all controls operated as intended. The original F-35 had previously bound and operated with that firmware. The replacement did not require a newly derived identity, address, hop sequence, or firmware adjustment.
@@ -347,15 +361,11 @@ This will show whether recovery requires a fresh A0 acquisition after link loss 
 
 ## RX/telemetry path after A1
 
-Current F-35 code has no normal receive/telemetry phase after A1.
+The **exact two-aircraft-tested v7 source snapshot** now contains an experimental receive phase during normal flight: it waits for TX completion, turns the RF module to RX, and probes for a one-byte enhanced payload on the flight address. The raw `0xE0/0xF0` status observed in stock captures is forwarded as raw A1/BATT telemetry when `SGF22_HUB_TELEMETRY` is enabled. **Do not interpret this as calibrated voltage or a verified low-battery flag.** The `0x10` bit polarity and meaning are unresolved, and reliable telemetry reception on the Q X7 has not been separately demonstrated.
 
-Upstream SGF22 can receive a 3-byte enhanced packet on the bind address:
+The v7 source also provides CH6 as a switch setting byte 6, bit `0x20`; on first activation it clears the sequence high bit `0x80` for the rest of that session. The exact user-facing stock feature of this CH6 function remains subject to verification.
 
-```text
-[id0, id1, battery-state]
-```
-
-The F-35 stock transmitter should be checked for low-battery indication/beeps. If it has them, a family-style telemetry response is a strong candidate and should be sniffed after A1.
+The stock transmitter/receiver behavior may differ from upstream SGF22, which can receive a three-byte enhanced packet `[id0,id1,battery-state]` on the bind address. Follow-up captures should verify when, whether, and how the F-35 emits `E0/F0`.
 
 ## Current code limitation
 
@@ -421,4 +431,4 @@ A0 until receiver participation
 
 The remaining work is mainly to map this F-35 packet layout onto already-known SGF22 family concepts and to determine which fields are pair-specific.
 
-A formal beta release should wait for at least one additional stock pair because the current code bakes one captured identity, one flight address and the corresponding SGF22 row-4 hop set into firmware.
+The existing v7 build is suitable for a clearly labeled **experimental development preview**, not a general flight-ready release. A broader beta should wait for at least one additional stock transmitter/aircraft capture, explicit failsafe and recovery testing, and a reproducible build because the current code still bakes one captured identity, one flight address and the corresponding SGF22 row-4 hop set into firmware.
