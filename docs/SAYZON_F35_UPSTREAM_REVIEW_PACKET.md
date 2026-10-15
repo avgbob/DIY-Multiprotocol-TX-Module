@@ -12,6 +12,21 @@ This is a **review/evidence summary**, not a general compatibility claim or a re
 3. [Detailed interpretation / prior experiments](SAYZON_F35_REVERSE_ENGINEERING.md).
 4. [Exact user-tested firmware `f35v7.bin` and notes](https://github.com/avgbob/DIY-Multiprotocol-TX-Module/releases/tag/sayzon-f35-v7-exp.1).
 
+### Newly recovered raw XN297Dump evidence
+
+Earlier notes incorrectly described the full serial dumps as unavailable. **They were uploaded during the original October 2–3 decoding work and have now been recovered.** There are **35 original uploads totaling 10,132,887 bytes**, including **31 files with roughly 110,764 parsed `RX ... Enhanced pid` records** across repeated sessions and captures. These are not necessarily unique packets or independent capture sessions. Four additional files are scan/config output or notes rather than enhanced RX-record streams.
+
+**Six exact uploaded files are now public**, their Git blob identities checked against the bytes of the original files:
+
+- [A0 search / zero-length enhanced packet / A1 transition: 20261002-030108](captures/SAYZON_XN297_20261002_030108_bind_ACK_and_A1.txt#L590-L603). This shows multiple `P(0)` records near A0/A1, but **does not conclusively prove their origin or that each event is a native hardware ACK**.
+- [Clean A0→A1 transition: 20261002-034930](captures/SAYZON_XN297_20261002_034930_A0_to_A1.txt#L750-L762). Observe ~15.9 ms intervals between several A0/A1 frames.
+- [A0-only: 20261002-035844](captures/SAYZON_XN297_20261002_035844_A0_only.txt). Over 1000 enhanced A0 records, no captured A1 in this file; **the aircraft's power state for this particular capture is not independently established by the log**.
+- [Flight packets: 20261002-025214](captures/SAYZON_XN297_20261002_025214_flight_CH24.txt). Captures `C=24` control traffic, some ~3.97 ms intervals, and a [one-byte `F0` packet](captures/SAYZON_XN297_20261002_025214_flight_CH24.txt#L611).
+- [Flight E0/F0 observations: 20261002-152421](captures/SAYZON_XN297_20261002_152421_flight_E0_F0_probe.txt#L360-L378). Full log includes ~8,676 enhanced RX records, with 32 one-byte `E0` and one `F0` records on C=24. **No low-battery/voltage meaning is asserted**.
+- [Control/trim capture: 20261003-141518](captures/SAYZON_XN297_20261003_141518_control_trim_sweep.txt).
+
+The [full capture index](captures/README.md) lists all 35 original file names, byte sizes and counts, with a checksum-verified complete ZIP prepared for posting as an upstream issue attachment. The archive is preserved **outside GitHub** until attached; the six linked raw files above are already public.
+
 ## 2. Hardware, capture method, firmware provenance
 
 | Item | Status / value |
@@ -32,7 +47,7 @@ There is **one captured stock transmitter identity**, not two. The second airfra
 
 ## 3. RF captures / behavior that can presently be supplied
 
-The following are **values transcribed from our XN297Dump investigation and lab notes**. The original full serial capture files, including per-packet timestamps, are **not attached with this review packet**. Please treat absolute RF timing/hops as observations requiring confirmation, not as archived independent trace evidence.
+The following are **values derived from recovered XN297Dump serial captures and our lab notes**. The public raw files linked above enable reviewers to confirm individual packets and tool-reported `us` intervals. **Original timestamped serial capture files have now been recovered from the experimenter's October 2–3 uploads and published in this fork:** see the [capture inventory and six byte-for-byte original logs](captures/README.md). The complete 35-file, 10.1 MB original-upload corpus is also preserved in a checksum-indexed ZIP for the experimenter to attach to upstream issue #1196. The selected original records include A0, zero-length `P(0)` packets, A1, flight packets and one-byte `E0/F0` payloads. This supports our *observations*, not all our interpretations. Captures are primarily on fixed channels C=24 or C=28; we still lack comprehensive time-correlated multi-channel recordings. Please treat absolute RF timing/hops as observations requiring confirmation, not as archived independent trace evidence.
 
 | Field | Captured / working value | Qualification |
 | --- | --- | --- |
@@ -67,7 +82,7 @@ The following are **values transcribed from our XN297Dump investigation and lab 
 | Explicit Bind-cancel while in F35 A0, then check for false A1 | **Not bench-tested** |
 | Receiver-only power-cycle recovery and timed reacquisition | **Not systematically tested** |
 | True RF loss/recovery without restart, receiver failsafe, motor behavior | **Not tested to release standard** |
-| Exact timing trace in original dump logs, ghost-channel elimination, RX reply bytes | **Not available as attached raw capture evidence** |
+| Original fixed-channel timestamps / packet records | **Recovered and linked:** [raw XN297Dump files](captures/README.md), including A0/A1 and one-byte E0/F0 responses. **Still not established:** complete multichannel synchronized timing, reliable classification of ghosts, definitive physical origin/ACK causality |
 | Actual voltage / low-battery meaning of `E0` versus `F0` | **Unknown** |
 | Bit-identical recompilation of `f35v7.bin` | **Not demonstrated** |
 
@@ -91,7 +106,7 @@ The `XN297_EMU.ino` wrapper **can** change from TX to RX directly, but should it
 
 ### D. Evidence missing for a broader release
 
-I can capture and provide additional experiments if directed. My current limits are **not knowing enough to trust my XN297 ACK/CRC interpretation**, lack of an independently captured second stock transmitter identity, **no attached full original timestamped XN297Dump serial logs**, and no systematic motor-safe loss-of-link or telemetry measurements. Rather than guessing at these details, I would appreciate guidance on **which single experiment would be decisive first**.
+I can capture and provide additional experiments if directed. My current limits are **not knowing enough to trust my XN297 ACK/CRC interpretation**, lack of an independently captured second stock transmitter identity, **no complete, time-correlated multi-channel acquisition trace or independently captured second stock transmitter**, and no systematic motor-safe loss-of-link or telemetry measurements. Rather than guessing at these details, I would appreciate guidance on **which single experiment would be decisive first**.
 
 ## 6. Safety and scope
 
