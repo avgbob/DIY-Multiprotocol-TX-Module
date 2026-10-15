@@ -50,6 +50,13 @@ Multiprotocol is distributed in the hope that it will be useful,
 #define SGF22_F35_ACK_TX_TIMEOUT_US	600
 #define SGF22_F35_ACK_WINDOW_US			700
 
+// F35 flight telemetry probe.
+// Captures the observed one-byte enhanced response (E0/F0 in stock captures)
+// without changing the 3.970ms application-packet cadence.
+#define SGF22_F35_TELEM_POLL_US			25
+#define SGF22_F35_TELEM_TX_TIMEOUT_US	600
+#define SGF22_F35_TELEM_RX_WINDOW_US	700
+
 //packet[8]
 #define SGF22_FLAG_3D					0x00
 #define SGF22_FLAG_LIGHT				0x04
@@ -81,16 +88,26 @@ enum {
 	SGF22_RX,
 };
 
-static uint8_t  SGF22_F35_seq;
+static uint8_t  SGF22_F35_seq;              // low sequence: 00..38 by 4
+static bool     SGF22_F35_seq_high;         // stock startup/session flag 0x80
 static uint8_t  SGF22_F35_hop;
 static bool     SGF22_F35_second;
 static uint8_t  SGF22_F35_bind_ack_state;
 static uint16_t SGF22_F35_bind_elapsed;
+static uint8_t  SGF22_F35_data_state;
+static uint16_t SGF22_F35_data_elapsed;
+static uint8_t  SGF22_F35_telem_status;
 
 enum {
 	SGF22_F35_ACK_SEND = 0,
 	SGF22_F35_ACK_WAIT_TX,
 	SGF22_F35_ACK_LISTEN
+};
+
+enum {
+	SGF22_F35_DATA_SEND = 0,
+	SGF22_F35_DATA_WAIT_TX,
+	SGF22_F35_DATA_LISTEN
 };
 
 static const uint8_t SGF22_F35_flight_addr[5] = { 0x55, 0x08, 0x00, 0x92, 0x14 };
@@ -135,20 +152,43 @@ static void __attribute__((unused)) SGF22_F35_start_flight()
 {
 	BIND_DONE;
 	XN297_SetTXAddr((uint8_t*)SGF22_F35_flight_addr, 5);
-	SGF22_F35_seq = 0x80;
+
+	// Stock flight telemetry/ACK-payload traffic is one application byte
+	// (observed E0/F0) on the flight address.  A width of 1 intentionally
+	// ignores the zero-length ACKs and lets this probe concentrate on status.
+	XN297_SetRXAddr((uint8_t*)SGF22_F35_flight_addr, 1);
+
+	SGF22_F35_seq = 0x00;
+	SGF22_F35_seq_high = true;
 	SGF22_F35_hop = 0;
 	SGF22_F35_second = false;
+	SGF22_F35_data_state = SGF22_F35_DATA_SEND;
+	SGF22_F35_data_elapsed = 0;
+	SGF22_F35_telem_status = 0;
+
+	#ifdef SGF22_HUB_TELEMETRY
+		RX_RSSI = 100;       // Dummy link value; RF RSSI is not available here.
+		telemetry_lost = 1;
+	#endif
 }
 
 static void __attribute__((unused)) SGF22_F35_send_data()
 {
+	// CH6 exposes the stock long-press function as a normal radio switch.
+	// Captures show byte6 bit 0x20 latches in the stock TX and, on its first
+	// activation in a session, permanently clears sequence bit 0x80.
+	if(CH6_SW)
+		SGF22_F35_seq_high = false;
+
+	uint8_t seq = SGF22_F35_seq | (SGF22_F35_seq_high ? 0x80 : 0x00);
+
 	if(!SGF22_F35_second)
 	{
 		XN297_RFChannel(SGF22_F35_hops[SGF22_F35_hop]);
-		packet[0] = SGF22_F35_seq;
+		packet[0] = seq;
 	}
 	else
-		packet[0] = SGF22_F35_seq | 0x01;
+		packet[0] = seq | 0x01;
 
 	packet[1] = SGF22_F35_channel(THROTTLE);
 	packet[2] = SGF22_F35_channel(RUDDER);
@@ -163,7 +203,7 @@ static void __attribute__((unused)) SGF22_F35_send_data()
 	else
 		packet[5] = 0x10;
 
-	packet[6] = 0x00;
+	packet[6] = CH6_SW ? 0x20 : 0x00;
 	packet[7] = 0x10;
 	packet[8] = 0x42;
 
@@ -174,8 +214,8 @@ static void __attribute__((unused)) SGF22_F35_send_data()
 	if(SGF22_F35_second)
 	{
 		SGF22_F35_seq += 4;
-		if(SGF22_F35_seq > 0xB8)
-			SGF22_F35_seq = 0x80;
+		if(SGF22_F35_seq > 0x38)
+			SGF22_F35_seq = 0x00;
 		SGF22_F35_hop = (SGF22_F35_hop + 1) & 0x03;
 	}
 	SGF22_F35_second = !SGF22_F35_second;
@@ -414,8 +454,68 @@ uint16_t SGF22_callback()
 			return SGF22_F35_BIND_PERIOD;
 		}
 
-		SGF22_F35_send_data();
-		return SGF22_F35_DATA_PERIOD;
+		switch(SGF22_F35_data_state)
+		{
+			case SGF22_F35_DATA_SEND:
+				SGF22_F35_send_data();
+				SGF22_F35_data_elapsed = SGF22_F35_TELEM_POLL_US;
+				SGF22_F35_data_state = SGF22_F35_DATA_WAIT_TX;
+				return SGF22_F35_TELEM_POLL_US;
+
+			case SGF22_F35_DATA_WAIT_TX:
+				if(!XN297_IsPacketSent())
+				{
+					if(SGF22_F35_data_elapsed < SGF22_F35_TELEM_TX_TIMEOUT_US)
+					{
+						SGF22_F35_data_elapsed += SGF22_F35_TELEM_POLL_US;
+						return SGF22_F35_TELEM_POLL_US;
+					}
+
+					// Preserve the captured application-packet cadence even if
+					// the TX-complete flag failed to arrive this slot.
+					SGF22_F35_data_state = SGF22_F35_DATA_SEND;
+					return SGF22_F35_DATA_PERIOD - SGF22_F35_data_elapsed;
+				}
+
+				// The stock captures place E0/F0 in the ACK turnaround after
+				// normal flight traffic.  Reuse the direct TX->RX technique
+				// already proven by the F35 acquisition ACK.
+				XN297_SetTxRxMode(RX_EN);
+				SGF22_F35_data_elapsed += SGF22_F35_TELEM_RX_WINDOW_US;
+				SGF22_F35_data_state = SGF22_F35_DATA_LISTEN;
+				return SGF22_F35_TELEM_RX_WINDOW_US;
+
+			case SGF22_F35_DATA_LISTEN:
+			default:
+			{
+				if(XN297_IsRX())
+				{
+					uint8_t len = XN297_ReadEnhancedPayload(packet_in, 1);
+					if(len == 1)
+					{
+						SGF22_F35_telem_status = packet_in[0];
+
+						#ifdef SGF22_HUB_TELEMETRY
+							// Probe behavior: expose the raw E0/F0 byte as A1/BATT.
+							// Do not assign battery-low polarity until a controlled
+							// pack-voltage test identifies the changing 0x10 bit.
+							v_lipo1 = SGF22_F35_telem_status;
+							telemetry_link = 1;
+							telemetry_lost = 0;
+						#endif
+
+						debugln("F35 telem %02X", SGF22_F35_telem_status);
+					}
+				}
+
+				XN297_SetTxRxMode(TXRX_OFF);
+				SGF22_F35_data_state = SGF22_F35_DATA_SEND;
+
+				if(SGF22_F35_data_elapsed >= SGF22_F35_DATA_PERIOD)
+					return SGF22_F35_TELEM_POLL_US;
+				return SGF22_F35_DATA_PERIOD - SGF22_F35_data_elapsed;
+			}
+		}
 	}
 
 	#ifdef SGF22_HUB_TELEMETRY
@@ -509,11 +609,15 @@ void SGF22_init()
 	{
 		SGF22_RF_init();
 
-		SGF22_F35_seq = 0x80;
+		SGF22_F35_seq = 0x00;
+		SGF22_F35_seq_high = true;
 		SGF22_F35_hop = 0;
 		SGF22_F35_second = false;
 		SGF22_F35_bind_ack_state = SGF22_F35_ACK_SEND;
 		SGF22_F35_bind_elapsed = 0;
+		SGF22_F35_data_state = SGF22_F35_DATA_SEND;
+		SGF22_F35_data_elapsed = 0;
+		SGF22_F35_telem_status = 0;
 
 		// The stock F35 transmitter performs receiver acquisition on every
 		// startup; it does not blindly enter flight traffic.  Do the same here.
