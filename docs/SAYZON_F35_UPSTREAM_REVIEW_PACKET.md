@@ -5,12 +5,29 @@
 
 This is a **review/evidence summary**, not a general compatibility claim or a request that maintainers reverse engineer from scratch.
 
+## October 15, 2026 — current reviewer status (supersedes older test-status rows below)
+
+**Which revision is which:** [original v7 firmware and source](https://github.com/avgbob/DIY-Multiprotocol-TX-Module/releases/tag/sayzon-f35-v7-exp.1) remain the exact known-good **two-aircraft** baseline. [Draft PR #4](https://github.com/avgbob/DIY-Multiprotocol-TX-Module/pull/4) is a **separate, cleaner state-machine refactor**, compiled into a different binary and now **motor-disconnected bench-tested**. The PR #4 firmware is *not* bit-identical to released v7; host simulation compared its intended RF output and scheduling to v7. Neither version has been flight- or failsafe-certified.
+
+| Item | Latest test evidence / remaining limits |
+| --- | --- |
+| Released v7 | `f35v7.bin`, **116,560 bytes**, SHA-256 `3d1f1361cb77f2878216e52c040e12828ad88cb7046fcdeaf403e28a7a235479`; binding and primary control observed on **two** separately purchased receiver airframes with the **same** hard-coded stock identity |
+| PR #4 exact source | `SGF22_nrf24l01.ino` Git blob `b447e77c2ebc65b8df5269a5f2c69252dbf86ef7`; explicit acquisition/confirmation/flight/cancellation driver; **no guessed feature bytes** |
+| PR #4 target build | Arduino IDE export on the STM32F103CB 128 KB IRX4 Plus profile; **116,608-byte** `multi-stm-1.3.4.74.bin`, SHA-256 `75c16b30692b6c357ed89cc534754917cf2215ad6705ebdedd253fba47d64f33`; **4,200 bytes application space remaining** (maximum 120,808) |
+| PR #4 hardware bench | Operator reported **7/7 checks passed on at least one receiver**, EDF electrically disconnected: module boots/radio recognizes it, binding, AIL/ELE/RUD directions, CH5 three positions, CH6 auxiliary switching, receiver power-cycle reconnect, and bind cancel/restart. Receiver power-cycle recovery was *qualitative*, not timed RF-loss/failsafe verification |
+| PR #4 host tests | 1,400 callback cycles and **476 TX events** matched original v7 source in a mock-XN297 trace (packet bytes, RF channels, callback delays and RF modes); synthetic cancellation tests passed. The executable host harness has **not been published as an independently runnable repository test** |
+| Cancellation limitation | PR #4 guards ordinary bind cancellation, but `End_Bind()` setting `bind_counter=2` **exactly when an A1 confirmation countdown is already 2** remains an ambiguous, narrow race. Please review whether MultiModule should offer an explicit cancel event instead of overloading the counter |
+| Independent trial PR #2 | Separate speculative CH7 `byte5=00`, CH8 `byte6|=02`, CH9 `byte6|=04` trial: **no observable response** during EDF-disconnected bench checks. Operator reported **“bind can't cancel”**; UI-versus-module cause was not independently isolated. PR #2 does **not** form part of PR #4 or released v7 |
+| Independent trial PR #5 | [Draft gated trim experiment](https://github.com/avgbob/DIY-Multiprotocol-TX-Module/pull/5), based on PR #4, preserves normal payload when disabled. Host-only checks reported; **STM32 compilation and receiver tests not yet performed**. This is **not** the recommended upstream implementation |
+
+**Best review entry point today:** inspect [PR #4 code](https://github.com/avgbob/DIY-Multiprotocol-TX-Module/pull/4) for framework lifecycle/ACK turnarounds; use exact v7 source and the raw stock-transmitter captures as the control. Priority questions remain (1) whether the software-emulated zero-length XN297 ACK and direct TX→RX handoff are electrically/protocol-correct, and (2) how to signal cancellation to a protocol whose A0 wait is intentionally indefinite. Repeated bench success **does not** resolve pairing generality, radio cloning, loss-of-link failsafe, or flight safety.
+
 ## 1. Entry points — read in this order
 
-1. **[F-35 SGF22 implementation (reconciled v7 source)](../Multiprotocol/SGF22_nrf24l01.ino)**; specifically [A0 ACK state machine](https://github.com/avgbob/DIY-Multiprotocol-TX-Module/blob/sayzon-f35-v7-exp.1/Multiprotocol/SGF22_nrf24l01.ino#L370-L454), [flight TX/RX scheduling](https://github.com/avgbob/DIY-Multiprotocol-TX-Module/blob/sayzon-f35-v7-exp.1/Multiprotocol/SGF22_nrf24l01.ino#L457-L519), and [initialization](https://github.com/avgbob/DIY-Multiprotocol-TX-Module/blob/sayzon-f35-v7-exp.1/Multiprotocol/SGF22_nrf24l01.ino#L610-L634).
-2. [Development PR #1 in the fork](https://github.com/avgbob/DIY-Multiprotocol-TX-Module/pull/1) (**this is *not* an upstream PR**).
-3. [Detailed interpretation / prior experiments](SAYZON_F35_REVERSE_ENGINEERING.md).
-4. [Exact user-tested firmware `f35v7.bin` and notes](https://github.com/avgbob/DIY-Multiprotocol-TX-Module/releases/tag/sayzon-f35-v7-exp.1).
+1. **[PR #4: the current clean F-35 driver](https://github.com/avgbob/DIY-Multiprotocol-TX-Module/pull/4)** — [design + hardware status](https://github.com/avgbob/DIY-Multiprotocol-TX-Module/blob/sayzon-f35-v7-clean-refactor/docs/SAYZON_F35_V7_CLEAN_REFACTOR.md), explicitly separated from unvalidated feature experiments.
+2. **[Original exact v7 source](https://github.com/avgbob/DIY-Multiprotocol-TX-Module/blob/sayzon-f35-v7-exp.1/Multiprotocol/SGF22_nrf24l01.ino)** — [A0 ACK path](https://github.com/avgbob/DIY-Multiprotocol-TX-Module/blob/sayzon-f35-v7-exp.1/Multiprotocol/SGF22_nrf24l01.ino#L370-L454), [flight TX/RX scheduling](https://github.com/avgbob/DIY-Multiprotocol-TX-Module/blob/sayzon-f35-v7-exp.1/Multiprotocol/SGF22_nrf24l01.ino#L457-L519), and [initialization](https://github.com/avgbob/DIY-Multiprotocol-TX-Module/blob/sayzon-f35-v7-exp.1/Multiprotocol/SGF22_nrf24l01.ino#L610-L634). [Exact v7 `f35v7.bin` release](https://github.com/avgbob/DIY-Multiprotocol-TX-Module/releases/tag/sayzon-f35-v7-exp.1).
+3. **[Unmodified stock transmitter evidence](captures/README.md)** — six inline raw logs plus the [complete 35-file ZIP already attached to issue #1196](https://github.com/user-attachments/files/33471553/SAYZON_F35_REDISCOVERED_XN297DUMP_LOGS_20261002-03.zip).
+4. [Detailed reverse-engineering notes](SAYZON_F35_REVERSE_ENGINEERING.md) and [earlier fork PR #1](https://github.com/avgbob/DIY-Multiprotocol-TX-Module/pull/1) (not an upstream pull request). Experimental PRs #2/#3/#5 are separate, not the proposed core driver.
 
 ### Newly recovered raw XN297Dump evidence
 
@@ -25,7 +42,7 @@ Earlier notes incorrectly described the full serial dumps as unavailable. **They
 - [Flight E0/F0 observations: 20261002-152421](captures/SAYZON_XN297_20261002_152421_flight_E0_F0_probe.txt#L360-L378). Full log includes ~8,676 enhanced RX records, with 32 one-byte `E0` and one `F0` records on C=24. **No low-battery/voltage meaning is asserted**.
 - [Isolated mode-switch capture: 20261003-141518](captures/SAYZON_XN297_20261003_141518_control_trim_sweep.txt). The operator confirmed using the mode switch. Byte 5 changes `18 → 10 → 14 → 18 → 14 → 10` with other control/trim bytes steady; this is not evidence of trim-button encoding.
 
-The [full capture index](captures/README.md) lists all 35 original file names, byte sizes and counts, with a checksum-verified complete ZIP prepared for posting as an upstream issue attachment. The archive is preserved **outside GitHub** until attached; the six linked raw files above are already public.
+The [full capture index](captures/README.md) lists all 35 original file names, byte sizes and counts, with the [complete original ZIP now attached to upstream issue #1196](https://github.com/user-attachments/files/33471553/SAYZON_F35_REDISCOVERED_XN297DUMP_LOGS_20261002-03.zip); the six linked raw files above are also public in the fork.
 
 ## 2. Hardware, capture method, firmware provenance
 
@@ -47,7 +64,7 @@ There is **one captured stock transmitter identity**, not two. The second airfra
 
 ## 3. RF captures / behavior that can presently be supplied
 
-The following are **values derived from recovered XN297Dump serial captures and our lab notes**. The public raw files linked above enable reviewers to confirm individual packets and tool-reported `us` intervals. **Original timestamped serial capture files have now been recovered from the experimenter's October 2–3 uploads and published in this fork:** see the [capture inventory and six byte-for-byte original logs](captures/README.md). The complete 35-file, 10.1 MB original-upload corpus is also preserved in a checksum-indexed ZIP for the experimenter to attach to upstream issue #1196. The selected original records include A0, zero-length `P(0)` packets, A1, flight packets and one-byte `E0/F0` payloads. This supports our *observations*, not all our interpretations. Captures are primarily on fixed channels C=24 or C=28; we still lack comprehensive time-correlated multi-channel recordings. Please treat absolute RF timing/hops as observations requiring confirmation, not as archived independent trace evidence.
+The following are **values derived from recovered XN297Dump serial captures and our lab notes**. The public raw files linked above enable reviewers to confirm individual packets and tool-reported `us` intervals. **Original timestamped serial capture files have now been recovered from the experimenter's October 2–3 uploads and published in this fork:** see the [capture inventory and six byte-for-byte original logs](captures/README.md). The complete 35-file, 10.1 MB original-upload corpus is [already attached to upstream issue #1196](https://github.com/user-attachments/files/33471553/SAYZON_F35_REDISCOVERED_XN297DUMP_LOGS_20261002-03.zip) in a checksum-indexed ZIP. The selected original records include A0, zero-length `P(0)` packets, A1, flight packets and one-byte `E0/F0` payloads. This supports our *observations*, not all our interpretations. Captures are primarily on fixed channels C=24 or C=28; we still lack comprehensive time-correlated multi-channel recordings. Please treat absolute RF timing/hops as observations requiring confirmation, not as archived independent trace evidence.
 
 | Field | Captured / working value | Qualification |
 | --- | --- | --- |
@@ -68,6 +85,12 @@ The following are **values derived from recovered XN297Dump serial captures and 
 | CH6/aux | v7 sends byte 6 `0x20` when CH6 active; high sequence bit clears on first activation | Raw-capture-inspired implementation, exact user-facing function still unproven |
 | Enhanced 1-byte response | `E0/F0` reported in original stock capture interpretation | v7 *probes* for 1-byte replies; reliable reception and battery semantics NOT bench-verified |
 
+### October 3 stock control bytes — source evidence, not claimed feature mappings
+
+The [capture index](captures/README.md#october-3-control-and-trim-capture-audit--october-15-2026) distinguishes the raw logs from interpretation. In the original mixed `20261003-135525` stock-transmitter test (5,221 nine-byte records), byte 6 stayed `00` while byte 7/8 trim fields changed; the tester **also moved the X-PILOT switch**, so the observed byte 5 `10 ↔ 00` does **not** identify a find-aircraft command. A later isolated mode sweep `20261003-141518` confirms byte 5 values `18 → 10 → 14 → 18 → 14 → 10` with the other control/trim bytes steady. Two other October 3 recordings show reversible byte 7/8 increments around the trim fields; high bit `0x80` in byte 8 and physical trim-to-field assignment remain undecoded.
+
+Across the latest complete, recognizable nine-byte flight-record audit of the recovered archive (100,352 records across 30 files, **not unique transmissions**), byte 6 contained `00` or `20`, with **no observed `02` or `04`**. Because much of the radio evidence is fixed-channel and the find-aircraft `di-di` function was **not acoustically confirmed with the EDF disconnected**, this means `02` is **unsupported**, not disproven as a possible extremely brief command. We **should not** call CH8 a proven beeper command or CH9 a proven stunt command. The original manual's long-press circling description makes `20` a plausible circling candidate, not flight-validated behavior.
+
 ## 4. Hardware observations and tests — avoid overstating
 
 | Test/claim | Current status |
@@ -79,8 +102,8 @@ The following are **values derived from recovered XN297Dump serial captures and 
 | Competing stock TX owns receiver, our module waits in A0 | **Qualitatively observed**, not timestamped / not verified on second receiver |
 | Independent stock-transmitter ID, hop or flight-address capture from second kit | **Not performed / unavailable** |
 | Fresh factory/virgin bind proven distinct from reuse of stored fixed ID | **Not proven** |
-| Explicit Bind-cancel while in F35 A0, then check for false A1 | **Not bench-tested** |
-| Receiver-only power-cycle recovery and timed reacquisition | **Not systematically tested** |
+| Explicit Bind-cancel while in F35 A0 | **Original v7: not documented as tested. PR #4: reported PASS** for cancelling and restarting bind (motor disconnected); narrow A1 counter=2 collision remains untested. **PR #2: “can't cancel” reported; mechanism not confirmed** |
+| Receiver-only power-cycle recovery and timed reacquisition | **PR #4 qualitative reconnect: reported PASS**, but elapsed time, full radio-link loss and failsafe behavior **not systematically tested** |
 | True RF loss/recovery without restart, receiver failsafe, motor behavior | **Not tested to release standard** |
 | Original fixed-channel timestamps / packet records | **Recovered and linked:** [raw XN297Dump files](captures/README.md), including A0/A1 and one-byte E0/F0 responses. **Still not established:** complete multichannel synchronized timing, reliable classification of ghosts, definitive physical origin/ACK causality |
 | Actual voltage / low-battery meaning of `E0` versus `F0` | **Unknown** |
@@ -100,7 +123,7 @@ The `XN297_EMU.ino` wrapper **can** change from TX to RX directly, but should it
 
 ### B. Bind-cancel / framework integration — actionable code-level concern
 
-[F35 initialization](https://github.com/avgbob/DIY-Multiprotocol-TX-Module/blob/sayzon-f35-v7-exp.1/Multiprotocol/SGF22_nrf24l01.ino#L610-L634) initializes **`bind_counter = 0xFFFF`** to remain in A0 search until ACK. In [global `End_Bind()`](https://github.com/avgbob/DIY-Multiprotocol-TX-Module/blob/sayzon-f35-v7-exp.1/Multiprotocol/Multiprotocol.ino#L766-L776), protocols outside the exception list have their bind counter reduced to **2**. In the [F35 callback](https://github.com/avgbob/DIY-Multiprotocol-TX-Module/blob/sayzon-f35-v7-exp.1/Multiprotocol/SGF22_nrf24l01.ino#L370-L454), **2** falls into A1 transmission instead of ACK-search logic. Consequently an **`End_Bind()` call during A0 would advance it without an actual ACK**. That follows from current source, but whether/how Q X7 triggers it in actual use is **not yet tested**. What is the right framework-compliant way to guard/cancel an indefinite ACK search?
+[F35 initialization](https://github.com/avgbob/DIY-Multiprotocol-TX-Module/blob/sayzon-f35-v7-exp.1/Multiprotocol/SGF22_nrf24l01.ino#L610-L634) initializes **`bind_counter = 0xFFFF`** to remain in A0 search until ACK. In [global `End_Bind()`](https://github.com/avgbob/DIY-Multiprotocol-TX-Module/blob/sayzon-f35-v7-exp.1/Multiprotocol/Multiprotocol.ino#L766-L776), protocols outside the exception list have their bind counter reduced to **2**. In the [F35 callback](https://github.com/avgbob/DIY-Multiprotocol-TX-Module/blob/sayzon-f35-v7-exp.1/Multiprotocol/SGF22_nrf24l01.ino#L370-L454), **2** falls into A1 transmission instead of ACK-search logic. Consequently an **`End_Bind()` call during A0 would advance original v7 without an actual ACK** (source-level issue, **not a demonstrated v7 hardware failure**). **PR #4 now separates cancellation into explicit local states; its ordinary bind-cancel/restart passed the reported physical bench test.** Its residual narrow case occurs if global cancellation sets `bind_counter=2` at exactly the same time its A1 counter legitimately equals 2. **PR #2 is not the fix:** it was reported unable to cancel, and the exact Q X7/module symptom wasn't isolated. What is the right framework-compliant way to signal cancellation of an indefinite ACK search without any counter collision?
 
 ### C. ID and upstream architecture
 
@@ -116,6 +139,6 @@ I can capture and provide additional experiments if directed. My current limits 
 
 ## 7. Minimal potential reviewer response
 
-The most useful first response is simply whether **(A)** the empty enhanced ACK / TX→RX approach is plausible and **(B)** the bind cancellation guard should be changed before further experiments. A recommendation for one decisive next bench test is much more helpful than a general request for “more logs”; I'd be glad to generate precisely the required captures, including µs timing, from the actual aircraft.
+The most useful first response is whether **(A)** the empty enhanced ACK / direct TX→RX approach is architecturally correct and **(B)** PR #4's explicit cancellation state can be integrated cleanly without the remaining A1 counter=2 ambiguity. A recommendation for one decisive next bench test is much more helpful than a general request for “more logs”; I'd be glad to generate precisely the required captures, including µs timing, from the actual aircraft.
 
 **Supporting context:** [full reverse-engineering notes](SAYZON_F35_REVERSE_ENGINEERING.md) · [release notes, hash and hardware requirements](SAYZON_F35_V7_RELEASE.md) · [v7 exact source tag](https://github.com/avgbob/DIY-Multiprotocol-TX-Module/tree/sayzon-f35-v7-exp.1)
