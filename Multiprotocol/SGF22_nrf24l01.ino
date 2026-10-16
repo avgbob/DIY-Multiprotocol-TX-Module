@@ -177,8 +177,41 @@ static void __attribute__((unused)) F35_build_control_packet()
         packet[5] = 0x10;
 
     packet[6] = CH6_SW ? 0x20 : 0x00;
-    packet[7] = 0x10; // baseline neutral; full fine-tune packing unverified
+    packet[7] = 0x10; // Original v7 neutral trim bytes.
     packet[8] = 0x42;
+
+    // EXPERIMENTAL: four anonymous packed-trim field probes, never a release.
+    // CH14 is a dead-man gate; CH10..CH13 MUST read 0% when not being tested.
+    // Apply at most ONE +/- step, otherwise remain on exact v7 neutral bytes.
+    // The stock captures show increments of 1/0x20 in byte7 and 1/4 in byte8,
+    // but they do NOT establish which physical trim maps to which field.
+    if(CH14_SW)
+    {
+        const uint8_t channels[4] = { CH10, CH11, CH12, CH13 };
+        const int8_t steps[4] = { 1, 0x20, 1, 4 };
+        uint8_t active = 0;
+        int8_t selected = -1;
+        int8_t direction = 0;
+        for(uint8_t i = 0; i < 4; ++i)
+        {
+            int8_t state = 0;
+            if(Channel_data[channels[i]] > CHANNEL_MAX_COMMAND)
+                state = 1;
+            else if(Channel_data[channels[i]] < CHANNEL_MIN_COMMAND)
+                state = -1;
+            if(state)
+            {
+                ++active;
+                selected = i;
+                direction = state;
+            }
+        }
+        if(active == 1)
+        {
+            const uint8_t dst = selected < 2 ? 7 : 8;
+            packet[dst] = static_cast<uint8_t>(packet[dst] + direction * steps[selected]);
+        }
+    }
 }
 
 static void __attribute__((unused)) F35_advance_control_sequence()
