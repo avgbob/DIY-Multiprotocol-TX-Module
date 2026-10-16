@@ -2432,6 +2432,25 @@ Notes:
  - CH6/CH9/CH13 (STUNT, RTH, RTH Set) are NOT required to be bound, or used to fly the plane.
  - CH9 (RTH) WILL function without CH13 (RTH Set) bound/used.
 
+### Sub_protocol F35 (experimental; two receiver-airframes validated)
+Model: SAYZON 40 mm F-35 EDF / closely related ParkTen-style F-35
+
+CH1|CH2|CH3|CH4|CH5|CH6
+---|---|---|---|---|---
+A|E|T|R|MODE|AUX
+
+Mode: -100% = 0x10, 0% = 0x14, +100% = 0x18. In the verified v7 source, CH6 sets packet byte 6 bit 0x20 and clears sequence high bit 0x80 after first activation; exact stock feature still needs characterization. The v7 code also probes a raw one-byte E0/F0 enhanced-payload status during normal flight; this telemetry is experimental and must not be treated as verified battery voltage.
+
+This is an SGF22-family variant. It uses the common bind address `C7 95 3C BB A5`, binds on channel 28, and the tested pair lands on existing SGF22 hop-table row 4 (`24,55,39,71`). The current code still hard-codes that tested pair's `08 00 92` identity / `55 08 00 92 14` flight address, so it is not yet a general F35 implementation.
+
+Startup sends the captured A0 search frame and waits for the receiver's empty enhanced ACK before A1 and flight. This prevents blindly injecting flight packets while another transmitter owns the receiver.
+
+Motor arming is still under investigation. A small throttle excursion followed by returning low appeared sufficient on the test aircraft, but no automatic arming movement is generated.
+
+**Tested binary:** `f35v7.bin`, SHA-256 `3d1f1361cb77f2878216e52c040e12828ad88cb7046fcdeaf403e28a7a235479` (116,560 bytes). The PR source has been synchronized to the tester's v7 SGF22 file; bit-identical firmware rebuild has not yet been established. See [v7 release notes](docs/SAYZON_F35_V7_RELEASE.md).
+
+**Experimental:** the same modified Q X7 firmware has bound and controlled the original and a replacement SAYZON F-35, with all controls reported functional on the replacement (2026-10-14). This is **two-aircraft functional validation**, not two independent stock transmitter/address captures: the original hard-coded pair ID, flight address and hops are still used. A second stock-TX/aircraft capture is needed before generalizing identity/address derivation or releasing broadly. Link-loss recovery, failsafe, extended reliability and alternate RF hardware remain unverified. Test with the EDF/motor disconnected first. [Follow engineering PR #1](https://github.com/avgbob/DIY-Multiprotocol-TX-Module/pull/1) · [Full reverse-engineering notes](docs/SAYZON_F35_REVERSE_ENGINEERING.md).
+
 ## Shenqi - *19*
 Autobind protocol
 
