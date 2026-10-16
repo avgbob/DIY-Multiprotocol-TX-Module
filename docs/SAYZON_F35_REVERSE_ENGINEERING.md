@@ -4,6 +4,27 @@ Status: **experimental SGF22-family F-35 variant; binding and control validated 
 
 **Development and review:** [avgbob/DIY-Multiprotocol-TX-Module PR #1](https://github.com/avgbob/DIY-Multiprotocol-TX-Module/pull/1) · [experimental implementation](https://github.com/avgbob/DIY-Multiprotocol-TX-Module/blob/sayzon-f35-beta-candidate/Multiprotocol/SGF22_nrf24l01.ino) · [protocol configuration](https://github.com/avgbob/DIY-Multiprotocol-TX-Module/blob/sayzon-f35-beta-candidate/Protocols_Details.md)
 
+## October 15, 2026 — updated engineering status (read before historical notes)
+
+The historical v7 source/protocol derivation below remains the baseline record. For Pascal's **current** technical review, use the [upstream review packet](SAYZON_F35_UPSTREAM_REVIEW_PACKET.md), the [raw archive index](captures/README.md), and the [current clean-driver PR #4](https://github.com/avgbob/DIY-Multiprotocol-TX-Module/pull/4). The [complete original 35-file capture ZIP](https://github.com/user-attachments/files/33471553/SAYZON_F35_REDISCOVERED_XN297DUMP_LOGS_20261002-03.zip) is **already attached** to [upstream issue #1196](https://github.com/pascallanger/DIY-Multiprotocol-TX-Module/issues/1196); six exact original logs are also committed in the fork.
+
+**Distinct revisions and evidence:**
+
+- **Original released v7:** one fixed stock-transmitter identity, binds/controls **two** separately purchased receiver airframes on the bench; exact 116,560-byte binary/sha below. Not flight-validated. A bit-identical source rebuild of **that exact v7 binary** is still not established.
+- **PR #4 clean driver:** compiled in Arduino IDE on the actual STM32F103CB IRX4 Plus profile; exported 116,608-byte firmware (SHA-256 `75c16b30692b6c357ed89cc534754917cf2215ad6705ebdedd253fba47d64f33`). Operator reported seven motor-disconnected bench checks passed: boot, bind, primary controls, CH5 modes, CH6, receiver-only power-cycle reconnection, and cancelling/restarting bind. Host simulation found 476 transmitted packet events and callback timings equal to v7 for its modeled scenarios. **Different binary, not an identical rebuild of v7**, and still not flight/failsafe certified.
+- **PR #4 remaining framework concern:** cancelling bind exactly while the A1 countdown equals 2 can be confused with global `End_Bind()` setting `bind_counter=2`. This narrow race remains for maintainer review, even though ordinary bench cancellation worked.
+- **PR #2 independent trial:** candidate CH7/CH8/CH9 mode/aux bytes produced no observable EDF-disconnected response; operator reported inability to cancel Bind. The exact UI/module failure mode was not isolated. **Do not incorporate PR #2's binding logic** in the clean driver.
+- **PR #5 independent trim experiment:** [draft, on PR #4](https://github.com/avgbob/DIY-Multiprotocol-TX-Module/pull/5), CH14-gated and host-tested only. It is *not* part of the reviewed v7 implementation and had no target build/receiver verification at documentation time.
+
+**Corrections from re-reading the October 3 original control logs:**
+
+- The mixed `20261003-135525` recording did include moving X-PILOT (operator confirmation). Its byte 5 `10 ↔ 00` transitions **do not establish an independent find-aircraft flag**. The isolated `20261003-141518` recording explicitly associates `18 / 10 / 14` with the three-position mode switch.
+- Byte 6 `0x02` and `0x04` were **not found** in the recovered complete nine-byte stock-flight records. Neither the "di-di" beeper nor the stunt function is decoded by those values; both remain speculative. `0x20` is captured and is a **circling/loiter candidate**, not a flight-validated function.
+- Bytes 7/8 **do change** in original trim recordings by steps including byte7 `1`/`0x20` and byte8 `1`/`4`. An unexplained byte8 high-bit `0x80` change remains. The actual mapping of axes/buttons to these packed fields has **not** been established. The original v7 sends neutral `10 42` without the changing stock trim fields.
+- Original stock "find aircraft" testing did **not acoustically confirm** the aircraft's "di-di", and the EDF was disconnected. Absence of sound does not independently distinguish a missed/incorrect command from use of the motor windings as an acoustic device.
+
+These newer results supersede **test-status claims and provisional feature interpretations** in earlier dated sections below. They do *not* invalidate the archived raw captures, two-airframe interoperability, or the outstanding question of correct XN297 ACK turnarounds and pair-ID derivation.
+
 ## v7 source and binary provenance (verified October 14, 2026)
 
 The tester confirmed **`f35v7.bin` was the exact binary flashed to the IRX4 Plus** for both successful aircraft tests.
